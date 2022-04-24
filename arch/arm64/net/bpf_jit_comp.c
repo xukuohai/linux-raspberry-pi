@@ -78,6 +78,15 @@ struct jit_ctx {
 	int fpb_offset;
 };
 
+struct bpf_plt {
+	u32 insn_ldr;
+	u32 insn_br;
+	u64 target[0];
+} __packed;
+
+#define PLT_TARGET_SIZE	sizeof(u64)
+#define PLT_INSNS 	3
+
 static inline void emit(const u32 insn, struct jit_ctx *ctx)
 {
 	if (ctx->image != NULL)
@@ -235,13 +244,13 @@ static bool is_lsi_offset(int offset, int scale)
 	return true;
 }
 
+#define BTI_INSNS (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL) ? 1 : 0)
+#define PAC_INSNS (IS_ENABLED(CONFIG_ARM64_PTR_AUTH_KERNEL) ? 1 : 0)
+
 /* Tail call offset to jump into */
-#if IS_ENABLED(CONFIG_ARM64_BTI_KERNEL) || \
-	IS_ENABLED(CONFIG_ARM64_PTR_AUTH_KERNEL)
-#define PROLOGUE_OFFSET 9
-#else
-#define PROLOGUE_OFFSET 8
-#endif
+#define PROLOGUE_OFFSET	(BTI_INSNS + 2 + PAC_INSNS + 8)
+/* Offset of nop instruction in bpf prog entry to be poked */
+#define POKE_OFFSET	(BTI_INSNS + 1)
 
 static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 {
@@ -280,12 +289,15 @@ static int build_prologue(struct jit_ctx *ctx, bool ebpf_from_cbpf)
 	 *
 	 */
 
+	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
+		emit(A64_BTI_C, ctx);
+
+	emit(A64_MOV(1, A64_R(9), A64_LR), ctx);
+	emit(A64_NOP, ctx);
+
 	/* Sign lr */
 	if (IS_ENABLED(CONFIG_ARM64_PTR_AUTH_KERNEL))
 		emit(A64_PACIASP, ctx);
-	/* BTI landing pad */
-	else if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
-		emit(A64_BTI_C, ctx);
 
 	/* Save FP and LR registers to stay align with ARM64 AAPCS */
 	emit(A64_PUSH(A64_FP, A64_LR, A64_SP), ctx);
@@ -555,6 +567,35 @@ static int emit_ll_sc_atomic(const struct bpf_insn *insn, struct jit_ctx *ctx)
 	}
 
 	return 0;
+}
+
+static void dummy_tramp(void);
+asm (
+"	.pushsection .text, \"ax\", @progbits\n"
+"	.type	dummy_tramp. @function\n"
+"dummy_tramp:\n"
+"	mov x10, x30\n"
+"	mov x30, x9\n"
+"	ret x10\n"
+"	.size dummy_tramp, . - dummy_tramp\n"
+"	.popsection"
+);
+
+static void build_plt(struct jit_ctx *ctx, bool write_target)
+{
+	const u8 tmp = bpf2a64[TMP_REG_1];
+
+	if (IS_ENABLED(CONFIG_ARM64_BTI_KERNEL))
+		emit(A64_BTI_J, ctx);
+
+	if (ctx->idx % 2 != 0)
+		emit(A64_NOP, ctx);
+
+	emit(A64_LDR64LIT(tmp, 8), ctx);
+	emit(A64_BR(tmp), ctx);
+
+	if (write_target)
+		*(u64 *)(ctx->image + ctx->idx) = (u64)&dummy_tramp;
 }
 
 static void build_epilogue(struct jit_ctx *ctx)
@@ -1356,7 +1397,7 @@ struct arm64_jit_data {
 
 struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 {
-	int image_size, prog_size, extable_size;
+	int image_size, prog_size, extable_size, extable_align, extable_offset;
 	struct bpf_prog *tmp, *orig_prog = prog;
 	struct bpf_binary_header *header;
 	struct arm64_jit_data *jit_data;
@@ -1426,13 +1467,16 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 
 	ctx.epilogue_offset = ctx.idx;
 	build_epilogue(&ctx);
+	build_plt(&ctx, false);
 
+	extable_align = __alignof__(struct exception_table_entry);
 	extable_size = prog->aux->num_exentries *
 		sizeof(struct exception_table_entry);
 
 	/* Now we know the actual image size. */
 	prog_size = sizeof(u32) * ctx.idx;
-	image_size = prog_size + extable_size;
+	extable_offset = round_up(prog_size + PLT_TARGET_SIZE, extable_align);
+	image_size = extable_offset +  + extable_size;
 	header = bpf_jit_binary_alloc(image_size, &image_ptr,
 				      sizeof(u32), jit_fill_hole);
 	if (header == NULL) {
@@ -1444,7 +1488,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 
 	ctx.image = (__le32 *)image_ptr;
 	if (extable_size)
-		prog->aux->extable = (void *)image_ptr + prog_size;
+		prog->aux->extable = (void *)image_ptr + extable_offset;
 skip_init_ctx:
 	ctx.idx = 0;
 	ctx.exentry_idx = 0;
@@ -1458,6 +1502,7 @@ skip_init_ctx:
 	}
 
 	build_epilogue(&ctx);
+	build_plt(&ctx, true);
 
 	/* 3. Extra pass to validate JITed code. */
 	if (validate_code(&ctx)) {
@@ -1471,6 +1516,8 @@ skip_init_ctx:
 		bpf_jit_dump(prog->len, prog_size, 2, ctx.image);
 
 	bpf_flush_icache(header, ctx.image + ctx.idx);
+
+	ctx.idx -= PLT_INSNS;
 
 	if (!prog->is_func || extra_pass) {
 		if (extra_pass && ctx.idx != jit_data->ctx.idx) {
@@ -1536,4 +1583,119 @@ void bpf_jit_free_exec(void *addr)
 bool bpf_jit_supports_subprog_tailcalls(void)
 {
 	return true;
+}
+
+static inline bool is_long_jump(void *ip, void *target)
+{
+	long offset;
+
+	if (target == NULL)
+		return false;
+
+	offset = (long)target - (long)ip;
+	return offset < -SZ_128M || offset >= SZ_128M;
+}
+
+static int gen_branch_or_nop(enum aarch64_insn_branch_type type, void *ip,
+			     void *addr, void *plt, u32 *insn)
+{
+	void *target;
+
+	if (!addr) {
+		*insn = aarch64_insn_gen_nop();
+		return 0;
+	}
+
+	if (is_long_jump(ip, addr))
+		target = plt;
+	else
+		target = addr;
+
+	*insn = aarch64_insn_gen_branch_imm((unsigned long)ip,
+					    (unsigned long)target,
+					    type);
+
+	return *insn != AARCH64_BREAK_FAULT ? 0 : -EFAULT;
+}
+
+int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
+		       void *old_addr, void *new_addr)
+{
+	int ret;
+	unsigned long size;
+	unsigned long offset = ~0UL;
+	char namebuf[KSYM_NAME_LEN];
+	u32 old_insn;
+	u32 new_insn;
+	u32 replaced;
+	struct bpf_plt *plt = NULL;
+	enum aarch64_insn_branch_type branch_type;
+	void *image = NULL;
+	u64 plt_target = 0ULL;
+	bool poking_bpf_entry;
+
+	if (!__bpf_address_lookup((unsigned long)ip, &size, &offset, namebuf))
+		/* Only poking bpf text is supported. Since kernel function
+		 * entry is set up by ftrace, we reply on ftrace to poke kernel
+		 * functions.
+		 */
+		return -ENOTSUPP;
+
+	image = ip - offset;
+	poking_bpf_entry = offset == 0ULL;
+
+	/* patch bpf prog body, only near branch supported */
+	if (poking_bpf_entry) {
+		/* plt locates at the end of bpf prog */
+		plt = image + size - sizeof(struct bpf_plt);
+
+		/* skip to the nop instruction in bpf prog entry:
+		 * bti c	// if BTI enabled
+		 * mov x9, x30
+		 * nop
+		 */
+		ip = image + POKE_OFFSET * AARCH64_INSN_SIZE;
+	}
+
+	if (poke_type == BPF_MOD_CALL)
+		branch_type = AARCH64_INSN_BRANCH_LINK;
+	else
+		branch_type = AARCH64_INSN_BRANCH_NOLINK;
+
+	if (gen_branch_or_nop(branch_type, ip, old_addr, plt, &old_insn) < 0)
+		return -EFAULT;
+
+	if (gen_branch_or_nop(branch_type, ip, new_addr, plt, &new_insn) < 0)
+		return -EFAULT;
+
+	if (is_long_jump(ip, new_addr) )
+		plt_target = (u64)new_addr;
+	else if (is_long_jump(ip, old_addr) )
+		plt_target = (u64)&dummy_tramp;
+
+	if (plt_target ) {
+		set_memory_rw(PAGE_MASK & ((long)plt->target), 1);
+		WRITE_ONCE(*plt->target, (u64)plt_target);
+		set_memory_ro(PAGE_MASK & ((long)plt->target), 1);
+	}
+
+	if (old_insn == new_insn)
+		return 0;
+
+	mutex_lock(&text_mutex);
+	if (aarch64_insn_read(ip, &replaced)) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	if (replaced != old_insn) {
+		ret = -EFAULT;
+		goto out;
+	}
+
+	ret = aarch64_insn_patch_text_nosync((void *)ip, new_insn);
+out:
+	mutex_unlock(&text_mutex);
+
+	return ret;
 }
