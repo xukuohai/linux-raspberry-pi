@@ -80,6 +80,12 @@
 #define A64_STR64I(Xt, Xn, imm) A64_LS_IMM(Xt, Xn, imm, 64, STORE)
 #define A64_LDR64I(Xt, Xn, imm) A64_LS_IMM(Xt, Xn, imm, 64, LOAD)
 
+/* ldr (literal) */
+#define A64_LDR32LIT(Wt, offset) \
+	aarch64_insn_gen_load_literal(0, offset, Wt, false)
+#define A64_LDR64LIT(Xt, offset) \
+	aarch64_insn_gen_load_literal(0, offset, Xt, true)
+
 /* Load/store register pair */
 #define A64_LS_PAIR(Rt, Rt2, Rn, offset, ls, type) \
 	aarch64_insn_gen_load_store_pair(Rt, Rt2, Rn, offset, \
@@ -280,6 +286,7 @@
 #define A64_NOP    A64_HINT(AARCH64_INSN_HINT_NOP)
 
 /* DMB */
-#define A64_DMB_ISH aarch64_insn_gen_dmb(AARCH64_INSN_MB_ISH)
+#define A64_DMB_ISH   aarch64_insn_gen_dmb(AARCH64_INSN_MB_ISH)
+#define A64_DMB_ISHLD aarch64_insn_gen_dmb(AARCH64_INSN_MB_ISHLD)
 
 #endif /* _BPF_JIT_H */
