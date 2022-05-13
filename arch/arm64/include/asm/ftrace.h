@@ -78,7 +78,7 @@ static inline unsigned long ftrace_call_adjust(unsigned long addr)
 	return addr;
 }
 
-#ifdef CONFIG_HAVE_DYNAMIC_FTRACE_WITH_DIRECT_CALLS
+#ifdef CONFIG_DYNAMIC_FTRACE_WITH_DIRECT_CALLS
 static inline void arch_ftrace_set_direct_caller(struct pt_regs *regs,
 						 unsigned long addr)
 {
