@@ -1904,6 +1904,17 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	return ctx->idx;
 }
 
+static inline bool is_long_jump(void *ip, void *target)
+{
+	long offset;
+
+	if (ip == NULL || target == NULL)
+		return false;
+
+	offset = (long)target - (long)ip;
+	return offset < -SZ_128M || offset >= SZ_128M;
+}
+
 int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 				void *image_end, const struct btf_func_model *m,
 				u32 flags, struct bpf_tramp_links *tlinks,
@@ -1917,8 +1928,9 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 		.idx = 0
 	};
 
+	pr_info("[%s:%d] orig_call=%pS\n", __func__, __LINE__, orig_call);
 	/* the first 8 arguments are passed by registers */
-	if (nargs > 8)
+	if (nargs > 8 || is_long_jump(orig_call, image))
 		return -ENOTSUPP;
 
 	ret = prepare_trampoline(&ctx, im, tlinks, orig_call, nargs, flags);
@@ -1941,17 +1953,6 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 		ret *= AARCH64_INSN_SIZE;
 
 	return ret;
-}
-
-static inline bool is_long_jump(void *ip, void *target)
-{
-	long offset;
-
-	if (target == NULL)
-		return false;
-
-	offset = (long)target - (long)ip;
-	return offset < -SZ_128M || offset >= SZ_128M;
 }
 
 static int gen_branch_or_nop(enum aarch64_insn_branch_type type, void *ip,
