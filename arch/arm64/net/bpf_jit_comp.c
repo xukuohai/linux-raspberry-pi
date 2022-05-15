@@ -176,6 +176,14 @@ static inline void emit_addr_mov_i64(const int reg, const u64 val,
 	}
 }
 
+static inline void emit_call(u64 target, struct jit_ctx *ctx)
+{
+	u8 tmp = bpf2a64[TMP_REG_1];
+
+	emit_addr_mov_i64(tmp, target, ctx);
+	emit(A64_BLR(tmp), ctx);
+}
+
 static inline int bpf2a64_offset(int bpf_insn, int off,
 				 const struct jit_ctx *ctx)
 {
@@ -1042,8 +1050,7 @@ emit_cond_jmp:
 					    &func_addr, &func_addr_fixed);
 		if (ret < 0)
 			return ret;
-		emit_addr_mov_i64(tmp, func_addr, ctx);
-		emit(A64_BLR(tmp), ctx);
+		emit_call(func_addr, ctx);
 		emit(A64_MOV(1, r0, A64_R(0)), ctx);
 		break;
 	}
@@ -1629,8 +1636,7 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	/* arg2: &run_ctx */
 	emit(A64_ADD_I(1, A64_R(1), A64_SP, run_ctx_off), ctx);
 	/* bl enter_prog */
-	emit_addr_mov_i64(tmp, enter_prog, ctx);
-	emit(A64_BLR(tmp), ctx);
+	emit_call(enter_prog, ctx);
 
 	/* if (__bpf_prog_enter(prog) == 0)
 	 *         goto skip_exec_of_prog;
@@ -1645,8 +1651,7 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	if (!p->jited)
 		emit_addr_mov_i64(A64_R(1), (const u64)p->insnsi, ctx);
 	/* bl bpf_func */
-	emit_addr_mov_i64(tmp, (const u64)p->bpf_func, ctx);
-	emit(A64_BLR(tmp), ctx);
+	emit_call((const u64)p->bpf_func, ctx);
 
 	/* store return value */
 	if (save_ret)
@@ -1666,8 +1671,7 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	/* arg3: &run_ctx */
 	emit(A64_ADD_I(1, A64_R(2), A64_SP, run_ctx_off), ctx);
 	/* bl prog_exit */
-	emit_addr_mov_i64(tmp, exit_prog, ctx);
-	emit(A64_BLR(tmp), ctx);
+	emit_call(exit_prog, ctx);
 }
 
 static void invoke_bpf_mod_ret(struct jit_ctx *ctx, struct bpf_tramp_links *tl,
@@ -1844,8 +1848,7 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		emit_addr_mov_i64(A64_R(0), (const u64)im, ctx);
-		emit_addr_mov_i64(A64_R(10), (const u64)__bpf_tramp_enter, ctx);
-		emit(A64_BLR(A64_R(10)), ctx);
+		emit_call((const u64)__bpf_tramp_enter, ctx);
 	}
 
 	pr_info("fentry: nr_links=%d\n", fentry->nr_links);
@@ -1897,8 +1900,7 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 		im->ip_epilogue = ctx->image + ctx->idx;
 		emit_bti(A64_BTI_J, ctx);
 		emit_addr_mov_i64(A64_R(0), (const u64)im, ctx);
-		emit_addr_mov_i64(A64_R(10), (const u64)__bpf_tramp_exit, ctx);
-		emit(A64_BLR(A64_R(10)), ctx);
+		emit_call((const u64)__bpf_tramp_exit, ctx);
 	}
 
 	/* restore x19 */
