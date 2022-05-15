@@ -583,6 +583,17 @@ static int emit_ll_sc_atomic(const struct bpf_insn *insn, struct jit_ctx *ctx)
 	return 0;
 }
 
+static inline bool is_long_jump(void *ip, void *target)
+{
+	long offset;
+
+	if (ip == NULL || target == NULL)
+		return false;
+
+	offset = (long)target - (long)ip;
+	return offset < -SZ_128M || offset >= SZ_128M;
+}
+
 static void build_plt(struct jit_ctx *ctx)
 {
 	const u8 tmp = bpf2a64[TMP_REG_1];
@@ -1592,7 +1603,7 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	u8 tmp = bpf2a64[TMP_REG_1];
 	u8 r0 = bpf2a64[BPF_REG_0];
 	struct bpf_prog *p = l->link.prog;
-	int ctx_cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie);
+	int cookie_off = offsetof(struct bpf_tramp_run_ctx, bpf_cookie);
 
 	if (p->aux->sleepable) {
 		enter_prog = (u64)__bpf_prog_enter_sleepable;
@@ -1603,14 +1614,21 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	}
 
 	/* store cookie */
-	emit_a64_mov_i64(tmp, l->cookie, ctx);
-	emit(A64_STR64I(tmp, A64_SP, run_ctx_off + ctx_cookie_off), ctx);
+	if (l->cookie == 0) {
+		emit(A64_STR64I(A64_ZR, A64_SP, run_ctx_off + cookie_off), ctx);
+	} else {
+		emit_a64_mov_i64(tmp, l->cookie, ctx);
+		emit(A64_STR64I(tmp, A64_SP, run_ctx_off + cookie_off), ctx);
+	}
 
+	/* save p to x19 */
+	emit_addr_mov_i64(A64_R(19), (const u64)p, ctx);
 	/* arg1: prog */
+	// emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
 	emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
 	/* arg2: &run_ctx */
 	emit(A64_ADD_I(1, A64_R(1), A64_SP, run_ctx_off), ctx);
-	/* bl __bpf_prog_enter */
+	/* bl enter_prog */
 	emit_addr_mov_i64(tmp, enter_prog, ctx);
 	emit(A64_BLR(tmp), ctx);
 
@@ -1620,8 +1638,8 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	branch = ctx->image + ctx->idx;
 	emit(A64_NOP, ctx);
 
-	/* move return value to x19 */
-	emit(A64_MOV(1, A64_R(19), r0), ctx);
+	/* move return value to x20 */
+	emit(A64_MOV(1, A64_R(20), r0), ctx);
 
 	emit(A64_ADD_I(1, A64_R(0), A64_SP, args_off), ctx);
 	if (!p->jited)
@@ -1637,16 +1655,17 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	if (ctx->image) {
 		int offset = &ctx->image[ctx->idx] - branch;
 		*branch = A64_CBZ(1, A64_R(0), offset);
-		emit_bti(A64_BTI_J, ctx);
 	}
+	emit_bti(A64_BTI_J, ctx);
 
 	/* arg1: prog */
+	//emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
 	emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
 	/* arg2: start time */
-	emit(A64_MOV(1, A64_R(1), A64_R(19)), ctx);
+	emit(A64_MOV(1, A64_R(1), A64_R(20)), ctx);
 	/* arg3: &run_ctx */
 	emit(A64_ADD_I(1, A64_R(2), A64_SP, run_ctx_off), ctx);
-	/* bl __bpf_prog_exit */
+	/* bl prog_exit */
 	emit_addr_mov_i64(tmp, exit_prog, ctx);
 	emit(A64_BLR(tmp), ctx);
 }
@@ -1680,6 +1699,7 @@ static void save_args(struct jit_ctx *ctx, int args_off, int nargs)
 {
 	int i;
 
+	pr_info("save_regs: nargs=%d\n", nargs);
 	for (i = 0; i < nargs; i++) {
 		emit(A64_STR64I(i, A64_SP, args_off), ctx);
 		args_off += 8;
@@ -1690,6 +1710,7 @@ static void restore_args(struct jit_ctx *ctx, int args_off, int nargs)
 {
 	int i;
 
+	pr_info("restore_regs: nargs=%d\n", nargs);
 	for (i = 0; i < nargs; i++) {
 		emit(A64_LDR64I(i, A64_SP, args_off), ctx);
 		args_off += 8;
@@ -1739,8 +1760,8 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	 *
 	 *                  [ padding          ] align SP to 16
 	 *
-	 * sp + regs_off    [ x19              ] callee-saved regs, currently
-	 *                                       only x19 is used
+	 * 		    [ x20              ] callee-saved reg, x20
+	 * sp + regs_off    [ x19              ] callee-saved reg, x19
 	 *
 	 * SP + retval_off  [ return value     ] BPF_TRAMP_F_CALL_ORIG or
 	 *                                       BPF_TRAMP_F_RET_FENTRY_RET
@@ -1754,6 +1775,7 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	 * SP + ip_off      [ traced function  ] BPF_TRAMP_F_IP_ARG flag
 	 *
 	 * SP + run_ctx_off [ bpf_tramp_run_ctx ]
+	 *
 	 */
 
 	stack_size = 0;
@@ -1780,9 +1802,9 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	if (save_ret)
 		stack_size += 8;
 
-	/* room for callee-saved registers, currently only x19 is used */
+	/* room for callee-saved registers, currently only x19, x20 are used */
 	regs_off = stack_size;
-	stack_size += 8;
+	stack_size += 16;
 
 	/* round up to 16 to avoid SPAlignmentFault */
 	stack_size = round_up(stack_size, 16);
@@ -1818,6 +1840,7 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 
 	/* save callee saved registers */
 	emit(A64_STR64I(A64_R(19), A64_SP, regs_off), ctx);
+	emit(A64_STR64I(A64_R(20), A64_SP, regs_off + 8), ctx);
 
 	if (flags & BPF_TRAMP_F_CALL_ORIG) {
 		emit_addr_mov_i64(A64_R(0), (const u64)im, ctx);
@@ -1825,10 +1848,12 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 		emit(A64_BLR(A64_R(10)), ctx);
 	}
 
+	pr_info("fentry: nr_links=%d\n", fentry->nr_links);
 	for (i = 0; i < fentry->nr_links; i++)
 		invoke_bpf_prog(ctx, fentry->links[i], args_off, retval_off,
 				run_ctx_off, flags & BPF_TRAMP_F_RET_FENTRY_RET);
 
+	pr_info("fmod_ret: nr_links=%d\n", fmod_ret->nr_links);
 	if (fmod_ret->nr_links) {
 		branches = kcalloc(fmod_ret->nr_links, sizeof(u32 *),
 				   GFP_KERNEL);
@@ -1857,6 +1882,10 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 		*branches[i] = A64_CBNZ(1, A64_R(10), offset);
 	}
 
+	if (fmod_ret->nr_links)
+		emit_bti(A64_BTI_J, ctx);
+
+	pr_info("fexit: nr_links=%d\n", fexit->nr_links);
 	for (i = 0; i < fexit->nr_links; i++)
 		invoke_bpf_prog(ctx, fexit->links[i], args_off, retval_off,
 				run_ctx_off, false);
@@ -1874,6 +1903,7 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 
 	/* restore x19 */
 	emit(A64_LDR64I(A64_R(19), A64_SP, regs_off), ctx);
+	emit(A64_LDR64I(A64_R(20), A64_SP, regs_off + 8), ctx);
 
 	if (save_ret)
 		emit(A64_LDR64I(A64_R(0), A64_SP, retval_off), ctx);
@@ -1904,22 +1934,12 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	return ctx->idx;
 }
 
-static inline bool is_long_jump(void *ip, void *target)
-{
-	long offset;
-
-	if (ip == NULL || target == NULL)
-		return false;
-
-	offset = (long)target - (long)ip;
-	return offset < -SZ_128M || offset >= SZ_128M;
-}
-
 int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 				void *image_end, const struct btf_func_model *m,
 				u32 flags, struct bpf_tramp_links *tlinks,
 				void *orig_call)
 {
+	int old;
 	int ret;
 	int nargs = m->nr_args;
 	int max_insns = ((long)image_end - (long)image) / AARCH64_INSN_SIZE;
@@ -1928,7 +1948,6 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 		.idx = 0
 	};
 
-	pr_info("[%s:%d] orig_call=%pS\n", __func__, __LINE__, orig_call);
 	/* the first 8 arguments are passed by registers */
 	if (nargs > 8 || is_long_jump(orig_call, image))
 		return -ENOTSUPP;
@@ -1937,8 +1956,13 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 	if (ret < 0)
 		return ret;
 
-	if (ret > max_insns)
+	if (ret > max_insns) {
+		pr_err("[%s:%d]  ctx->idx=%d ret=%d max_insns=%d\n",
+				__func__, __LINE__, ctx.idx, ret, max_insns);
 		return -EFBIG;
+	}
+
+	old = ret;
 
 	ctx.image = image;
 	ctx.idx = 0;
@@ -1946,6 +1970,11 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 	jit_fill_hole(image, (unsigned int)(image_end - image));
 	ret = prepare_trampoline(&ctx, im, tlinks, orig_call, nargs, flags);
 
+	if (ret > 0 && ret != old) {
+		pr_err("[%s:%d]  BUG!!! ctx.idx=%d ret=%d old_ret=%d\n",
+			__func__, __LINE__, ctx.idx, ret, old);
+		return -EFAULT;
+	}
 	if (ret > 0 && validate_code(&ctx) < 0)
 		ret = -EINVAL;
 
