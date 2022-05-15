@@ -1659,8 +1659,8 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	emit_bti(A64_BTI_J, ctx);
 
 	/* arg1: prog */
-	//emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
-	emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
+	emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
+	// emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
 	/* arg2: start time */
 	emit(A64_MOV(1, A64_R(1), A64_R(20)), ctx);
 	/* arg3: &run_ctx */
