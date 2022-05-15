@@ -1624,8 +1624,8 @@ static void invoke_bpf_prog(struct jit_ctx *ctx, struct bpf_tramp_link *l,
 	/* save p to x19 */
 	emit_addr_mov_i64(A64_R(19), (const u64)p, ctx);
 	/* arg1: prog */
-	// emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
-	emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
+	emit(A64_MOV(1, A64_R(0), A64_R(19)), ctx);
+	// emit_addr_mov_i64(A64_R(0), (const u64)p, ctx);
 	/* arg2: &run_ctx */
 	emit(A64_ADD_I(1, A64_R(1), A64_SP, run_ctx_off), ctx);
 	/* bl enter_prog */
