@@ -584,12 +584,13 @@ static int emit_ll_sc_atomic(const struct bpf_insn *insn, struct jit_ctx *ctx)
 }
 
 static void dummy_tramp(void);
+
 asm (
 "	.pushsection .text, \"ax\", @progbits\n"
 "	.type	dummy_tramp. @function\n"
 "dummy_tramp:\n"
-"	mov x10, x30\n"
-"	mov x30, x9\n"
+"	mov x10, lr\n"
+"	mov lr, x9\n"
 "	ret x10\n"
 "	.size dummy_tramp, . - dummy_tramp\n"
 "	.popsection"
@@ -1931,12 +1932,15 @@ static int prepare_trampoline(struct jit_ctx *ctx, struct bpf_tramp_image *im,
 	return ctx->idx;
 }
 
-static inline bool is_long_jump(void *ip, void *target)
+static inline bool is_long_jump(void *ip, void *target, bool entry)
 {
 	long offset;
 
 	if (target == NULL)
 		return false;
+
+	if (entry)
+		return true;
 
 	offset = (long)target - (long)ip;
 	return offset < -SZ_128M || offset >= SZ_128M;
@@ -1972,6 +1976,7 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 	jit_fill_hole(image, (unsigned int)(image_end - image));
 	ret = prepare_trampoline(&ctx, im, tlinks, orig_call, nargs, flags);
 
+
 	if (ret > 0 && validate_code(&ctx) < 0)
 		ret = -EINVAL;
 
@@ -1982,19 +1987,23 @@ int arch_prepare_bpf_trampoline(struct bpf_tramp_image *im, void *image,
 }
 
 static int gen_branch_or_nop(enum aarch64_insn_branch_type type, void *ip,
-			     void *addr, void *plt, u32 *insn)
+			     void *addr, void *plt, u32 *insn, bool entry)
 {
 	void *target;
 
 	if (!addr) {
 		*insn = aarch64_insn_gen_nop();
+		pr_notice("generate nop for %px (%pS)\n", ip, ip);
 		return 0;
 	}
 
-	if (is_long_jump(ip, addr))
+	if (is_long_jump(ip, addr, entry)) {
 		target = plt;
-	else
+	} else {
 		target = addr;
+	}
+
+	pr_notice("generate branch from %px (%pS) to %px (%pS)\n", ip, ip, target, target);
 
 	*insn = aarch64_insn_gen_branch_imm((unsigned long)ip,
 					    (unsigned long)target,
@@ -2042,7 +2051,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 		ip = image + POKE_OFFSET * AARCH64_INSN_SIZE;
 	}
 
-	if ( (is_long_jump(ip, new_addr) || is_long_jump(ip, new_addr))  && !poking_bpf_entry) {
+	if ( (is_long_jump(ip, new_addr, poking_bpf_entry) || is_long_jump(ip, new_addr, poking_bpf_entry))  && !poking_bpf_entry) {
 		pr_err("ERROR long jump\n");
 		return -EINVAL;
 	}
@@ -2052,21 +2061,23 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 	else
 		branch_type = AARCH64_INSN_BRANCH_NOLINK;
 
-	if (gen_branch_or_nop(branch_type, ip, old_addr, plt, &old_insn) < 0)
+	if (gen_branch_or_nop(branch_type, ip, old_addr, plt, &old_insn, poking_bpf_entry) < 0)
 		return -EFAULT;
 
-	if (gen_branch_or_nop(branch_type, ip, new_addr, plt, &new_insn) < 0)
+	if (gen_branch_or_nop(branch_type, ip, new_addr, plt, &new_insn, poking_bpf_entry) < 0)
 		return -EFAULT;
 
-	if (is_long_jump(ip, new_addr) )
+	if (is_long_jump(ip, new_addr, poking_bpf_entry) )
 		plt_target = (u64)new_addr;
-	else if (is_long_jump(ip, old_addr) )
+	else if (is_long_jump(ip, old_addr, poking_bpf_entry) )
 		plt_target = (u64)&dummy_tramp;
 
 	if (plt_target ) {
+		pr_notice("BEGIN write %px (%pS) to plt %px (%pS)\n", plt_target, plt_target, plt->target, plt->target);
 		set_memory_rw(PAGE_MASK & ((long)plt->target), 1);
 		WRITE_ONCE(*plt->target, (u64)plt_target);
 		set_memory_ro(PAGE_MASK & ((long)plt->target), 1);
+		pr_notice("END write %px (%pS) to plt %px (%pS)\n", plt_target, plt_target, plt->target, plt->target);
 	}
 
 	if (old_insn == new_insn)
@@ -2083,6 +2094,7 @@ int bpf_arch_text_poke(void *ip, enum bpf_text_poke_type poke_type,
 		goto out;
 	}
 
+	pr_notice("patch %px (%pS) to insn %08x\n", ip, ip, new_insn);
 	ret = aarch64_insn_patch_text_nosync((void *)ip, new_insn);
 out:
 	mutex_unlock(&text_mutex);
