@@ -1,0 +1,268 @@
+direct-call
+
+没有bpftrace时
+
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.54522 s, 331 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.55425 s, 329 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.5663 s, 327 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.58729 s, 323 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.5874 s, 323 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.56456 s, 327 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.57388 s, 325 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.56558 s, 327 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.55927 s, 328 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.58582 s, 323 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.58984 s, 322 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.54306 s, 332 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.59336 s, 321 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.61051 s, 318 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.54213 s, 332 MB/s
+root@rpi4-20220121:~#
+
+使用以下trace时
+
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.03437 s, 252 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.01939 s, 254 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 1.99179 s, 257 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.03743 s, 251 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.05494 s, 249 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.07026 s, 247 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.16994 s, 236 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.03146 s, 252 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.06993 s, 247 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.0295 s, 252 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.16128 s, 237 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.09466 s, 244 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.04003 s, 251 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.01578 s, 254 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.03505 s, 252 MB/s
+root@rpi4-20220121:~# dd if=/dev/zero of=/dev/null count=1000000
+1000000+0 records in
+1000000+0 records out
+512000000 bytes (512 MB, 488 MiB) copied, 2.04655 s, 250 MB/s
+
+
+# ./run_bpf_test.sh
+Setting up benchmark 'rename-fentry'...
+Benchmark 'rename-fentry' started.
+Iter   0 ( 76.389us): hits    0.714M/s (  0.714M/prod), drops    0.000M/s, total
+operations    0.714M/s
+Iter   1 (  1.499us): hits    0.720M/s (  0.720M/prod), drops    0.000M/s, total
+operations    0.720M/s
+Iter   2 (-17.075us): hits    0.720M/s (  0.720M/prod), drops    0.000M/s, total
+operations    0.720M/s
+Iter   3 ( -3.056us): hits    0.722M/s (  0.722M/prod), drops    0.000M/s, total
+operations    0.722M/s
+Iter   4 (  0.703us): hits    0.721M/s (  0.721M/prod), drops    0.000M/s, total
+operations    0.721M/s
+Iter   5 ( -1.500us): hits    0.720M/s (  0.720M/prod), drops    0.000M/s, total
+operations    0.720M/s
+Iter   6 (  4.647us): hits    0.721M/s (  0.721M/prod), drops    0.000M/s, total
+operations    0.721M/s
+Summary: hits    0.721 ± 0.001M/s (  0.721M/prod), drops    0.000 ± 0.000M/s,
+total operations    0.721 ± 0.001M/s
+Setting up benchmark 'trig-fentry'...
+Benchmark 'trig-fentry' started.
+Iter   0 ( 49.148us): hits    1.014M/s (  1.014M/prod), drops    0.000M/s, total
+operations    1.014M/s
+Iter   1 (-13.816us): hits    1.021M/s (  1.021M/prod), drops    0.000M/s, total
+operations    1.021M/s
+Iter   2 (  0.648us): hits    1.021M/s (  1.021M/prod), drops    0.000M/s, total
+operations    1.021M/s
+Iter   3 (  3.370us): hits    1.021M/s (  1.021M/prod), drops    0.000M/s, total
+operations    1.021M/s
+Iter   4 ( 11.388us): hits    1.021M/s (  1.021M/prod), drops    0.000M/s, total
+operations    1.021M/s
+Iter   5 (-17.242us): hits    1.022M/s (  1.022M/prod), drops    0.000M/s, total
+operations    1.022M/s
+Iter   6 (  1.815us): hits    1.021M/s (  1.021M/prod), drops    0.000M/s, total
+operations    1.021M/s
+Summary: hits    1.021 ± 0.000M/s (  1.021M/prod), drops    0.000 ± 0.000M/s,
+total operations    1.021 ± 0.000M/s
+Setting up benchmark 'trig-fentry-sleep'...
+Benchmark 'trig-fentry-sleep' started.
+Iter   0 ( 47.351us): hits    0.955M/s (  0.955M/prod), drops    0.000M/s, total
+operations    0.955M/s
+Iter   1 (-11.185us): hits    0.962M/s (  0.962M/prod), drops    0.000M/s, total
+operations    0.962M/s
+Iter   2 ( -3.260us): hits    0.962M/s (  0.962M/prod), drops    0.000M/s, total
+operations    0.962M/s
+Iter   3 ( -0.686us): hits    0.962M/s (  0.962M/prod), drops    0.000M/s, total
+operations    0.962M/s
+Iter   4 (  0.129us): hits    0.963M/s (  0.963M/prod), drops    0.000M/s, total
+operations    0.963M/s
+Iter   5 ( -1.241us): hits    0.962M/s (  0.962M/prod), drops    0.000M/s, total
+operations    0.962M/s
+Iter   6 (  2.981us): hits    0.961M/s (  0.961M/prod), drops    0.000M/s, total
+operations    0.961M/s
+Summary: hits    0.962 ± 0.001M/s (  0.962M/prod), drops    0.000 ± 0.000M/s,
+total operations    0.962 ± 0.001M/s
+Can't find bpf_testmod.ko kernel module: -2
+WARNING! Selftests relying on bpf_testmod.ko will be skipped.
+test_lsm_cgroup_functional:PASS:create empty cgroup 0 nsec
+test_lsm_cgroup_functional:PASS:create cgroup for reuse 0 nsec
+test_lsm_cgroup_functional:PASS:join_cgroup 0 nsec
+libbpf: prog 'socket_post_create': failed to find kernel BTF type ID of
+'socket_post_create': -3
+libbpf: prog 'socket_post_create': failed to prepare load attributes: -3
+libbpf: prog 'socket_post_create': failed to load: -3
+libbpf: failed to load object 'lsm_cgroup'
+libbpf: failed to load BPF skeleton 'lsm_cgroup': -3
+test_lsm_cgroup_functional:FAIL:open_and_load unexpected error: -3
+#108/1   lsm_cgroup/functional:FAIL
+#108/2   lsm_cgroup/nonvoid:OK
+#108     lsm_cgroup:FAIL
+true: symbol lookup error: /home/huawei/libc.so.6: undefined symbol:
+_dl_audit_preinit, version GLIBC_PRIVATE
+test_test_lsm:PASS:lsm_skel_load 0 nsec
+test_lsm:PASS:attach 0 nsec
+libbpf: prog 'test_int_hook': failed to attach: Device or resource busy
+test_lsm:PASS:attach_link 0 nsec
+test_lsm:FAIL:exec_cmd unexpected error: 32512 (errno 16)
+test_test_lsm:FAIL:test_lsm_first_attach unexpected error: 32512 (errno 16)
+#200     test_lsm:FAIL
+
+All error logs:
+test_lsm_cgroup_functional:PASS:create empty cgroup 0 nsec
+test_lsm_cgroup_functional:PASS:create cgroup for reuse 0 nsec
+test_lsm_cgroup_functional:PASS:join_cgroup 0 nsec
+libbpf: prog 'socket_post_create': failed to find kernel BTF type ID of
+'socket_post_create': -3
+libbpf: prog 'socket_post_create': failed to prepare load attributes: -3
+libbpf: prog 'socket_post_create': failed to load: -3
+libbpf: failed to load object 'lsm_cgroup'
+libbpf: failed to load BPF skeleton 'lsm_cgroup': -3
+test_lsm_cgroup_functional:FAIL:open_and_load unexpected error: -3
+#108/1   lsm_cgroup/functional:FAIL
+#108     lsm_cgroup:FAIL
+test_test_lsm:PASS:lsm_skel_load 0 nsec
+test_lsm:PASS:attach 0 nsec
+libbpf: prog 'test_int_hook': failed to attach: Device or resource busy
+test_lsm:PASS:attach_link 0 nsec
+test_lsm:FAIL:exec_cmd unexpected error: 32512 (errno 16)
+test_test_lsm:FAIL:test_lsm_first_attach unexpected error: 32512 (errno 16)
+#200     test_lsm:FAIL
+Summary: 0/1 PASSED, 0 SKIPPED, 2 FAILED'
+
+
+root@rpi4-20220121:/home/huawei# LD_LIBRARY_PATH=/home/huawei
+/home/huawei/ld-linux-aarch64.so.1  /home/huawei/bpf/bench trig-kprobe
+Setting up benchmark 'trig-kprobe'...
+Benchmark 'trig-kprobe' started.
+Iter   0 ( 76.055us): hits    0.763M/s (  0.763M/prod), drops    0.000M/s, total operations    0.763M/s
+Iter   1 (-14.963us): hits    0.768M/s (  0.768M/prod), drops    0.000M/s, total operations    0.768M/s
+Iter   2 ( -3.538us): hits    0.769M/s (  0.769M/prod), drops    0.000M/s, total operations    0.769M/s
+Iter   3 ( 17.092us): hits    0.769M/s (  0.769M/prod), drops    0.000M/s, total operations    0.769M/s
+Iter   4 (-13.982us): hits    0.769M/s (  0.769M/prod), drops    0.000M/s, total operations    0.769M/s
+Iter   5 ( -3.167us): hits    0.769M/s (  0.769M/prod), drops    0.000M/s, total operations    0.769M/s
+Iter   6 (  0.184us): hits    0.769M/s (  0.769M/prod), drops    0.000M/s, total operations    0.769M/s
+Summary: hits    0.769 ± 0.000M/s (  0.769M/prod), drops    0.000 ± 0.000M/s, total operations    0.769 ± 0.000M/s
+
+root@rpi4-20220121:/home/huawei# bpftrace -e 'kprobe:vfs_write {}'
+Attaching 1 probe...
+^C
+
+root@rpi4-20220121:/home/huawei# LD_LIBRARY_PATH=/home/huawei
+/home/huawei/ld-linux-aarch64.so.1  /home/huawei/bpf/bench trig-base
+Setting up benchmark 'trig-base'...
+Benchmark 'trig-base' started.
+Iter   0 ( 49.036us): hits    1.764M/s (  1.764M/prod), drops    0.000M/s, total operations    1.764M/s
+Iter   1 (  6.222us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Iter   2 (-18.075us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Iter   3 ( -3.241us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Iter   4 ( -1.316us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Iter   5 (  3.722us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Iter   6 (  1.851us): hits    1.782M/s (  1.782M/prod), drops    0.000M/s, total operations    1.782M/s
+Summary: hits    1.782 ± 0.000M/s (  1.782M/prod), drops    0.000 ± 0.000M/s,
+total operations    1.782 ± 0.000M/s
+
