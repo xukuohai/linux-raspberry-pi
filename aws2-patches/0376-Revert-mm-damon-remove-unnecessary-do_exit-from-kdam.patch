@@ -1,0 +1,24 @@
+From 07138f96141ec5f0ecbb2232474b2a2fc20ccc5f Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:18 +0000
+Subject: Revert "mm/damon: remove unnecessary do_exit() from kdamond"
+
+This reverts commit 193ac8ad7f251c265f3be19b34b8be47bc0ac3a4.
+---
+ mm/damon/core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 39069aa0d80b..7301e543f892 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -709,5 +709,5 @@ static int kdamond_fn(void *data)
+ 	nr_running_ctxs--;
+ 	mutex_unlock(&damon_lock);
+ 
+-	return 0;
++	do_exit(0);
+ }
+-- 
+2.32.0
+

@@ -1,0 +1,36 @@
+From 40312ea4cf4298716973b40d2728ff3e91f2fcdd Mon Sep 17 00:00:00 2001
+From: Sreekanth Reddy <sreekanth.reddy@broadcom.com>
+Date: Thu, 10 Feb 2022 15:28:14 +0530
+Subject: scsi: mpi3mr: Fix reporting of actual data transfer size
+
+[ Upstream commit 9992246127246a27cc7184f05cce6f62ac48f84e ]
+
+The driver is missing to set the residual size while completing an
+I/O. Ensure proper data transfer size is reported to the kernel on I/O
+completion based on the transfer length reported by the firmware.
+
+Link: https://lore.kernel.org/r/20220210095817.22828-7-sreekanth.reddy@broadcom.com
+Signed-off-by: Sreekanth Reddy <sreekanth.reddy@broadcom.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+Signed-off-by: Sasha Levin <sashal@kernel.org>
+(cherry picked from commit 248ead78f3462c98dc21a303b79fe3a8efa6b64e)
+---
+ drivers/scsi/mpi3mr/mpi3mr_os.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/scsi/mpi3mr/mpi3mr_os.c b/drivers/scsi/mpi3mr/mpi3mr_os.c
+index 3402dbc72f55..7d967e04dfcb 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr_os.c
++++ b/drivers/scsi/mpi3mr/mpi3mr_os.c
+@@ -2224,6 +2224,8 @@ void mpi3mr_process_op_reply_desc(struct mpi3mr_ioc *mrioc,
+ 		scmd->result = DID_OK << 16;
+ 		goto out_success;
+ 	}
++
++	scsi_set_resid(scmd, scsi_bufflen(scmd) - xfer_count);
+ 	if (ioc_status == MPI3_IOCSTATUS_SCSI_DATA_UNDERRUN &&
+ 	    xfer_count == 0 && (scsi_status == MPI3_SCSI_STATUS_BUSY ||
+ 	    scsi_status == MPI3_SCSI_STATUS_RESERVATION_CONFLICT ||
+-- 
+2.32.0
+

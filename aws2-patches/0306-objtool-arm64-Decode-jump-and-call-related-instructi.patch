@@ -1,0 +1,48 @@
+From 984b36473e2273858dbca316653cb2bc72ef729d Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 9 Sep 2020 14:27:17 +0100
+Subject: objtool: arm64: Decode jump and call related instructions
+
+Decode branch, branch and link (aarch64's call) and return instructions.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/objtool/arch/arm64/decode.c | 22 ++++++++++++++++++++++
+ 1 file changed, 22 insertions(+)
+
+diff --git a/tools/objtool/arch/arm64/decode.c b/tools/objtool/arch/arm64/decode.c
+index f3e6d33d17df..df9cca112255 100644
+--- a/tools/objtool/arch/arm64/decode.c
++++ b/tools/objtool/arch/arm64/decode.c
+@@ -226,6 +226,28 @@ int arch_decode_instruction(const struct elf *elf, const struct section *sec,
+ 		}
+ 		*type = INSN_OTHER;
+ 		break;
++	case AARCH64_INSN_CLS_BR_SYS:
++		if (aarch64_insn_is_ret(insn) &&
++		    aarch64_insn_decode_register(AARCH64_INSN_REGTYPE_RN, insn) == AARCH64_INSN_REG_LR) {
++			*type = INSN_RETURN;
++		} else if (aarch64_insn_is_bl(insn)) {
++			*type = INSN_CALL;
++			*immediate = aarch64_get_branch_offset(insn);
++		} else if (aarch64_insn_is_blr(insn)) {
++			*type = INSN_CALL_DYNAMIC;
++		} else if (aarch64_insn_is_b(insn)) {
++			*type = INSN_JUMP_UNCONDITIONAL;
++			*immediate = aarch64_get_branch_offset(insn);
++		} else if (aarch64_insn_is_br(insn)) {
++			*type = INSN_JUMP_DYNAMIC;
++		} else if (aarch64_insn_is_branch_imm(insn)) {
++			/* Remaining branch opcodes are conditional */
++			*type = INSN_JUMP_CONDITIONAL;
++			*immediate = aarch64_get_branch_offset(insn);
++		} else {
++			*type = INSN_OTHER;
++		}
++		break;
+ 	default:
+ 		*type = INSN_OTHER;
+ 		break;
+-- 
+2.32.0
+

@@ -1,0 +1,235 @@
+From 1c85282558b7583685393ca1f3ea8199a42dbb6e Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 2 Feb 2021 12:55:43 +0000
+Subject: mm/damon: Introduce arbitrary target type
+
+A problem of region-based monitoring is additional memory space overhead
+for the regions metadata.  For example, suppose we want to monitor if
+each page is acceessed or not rather than getting the access frequency
+of each memory region.  Without DAMON, we can do that by periodically
+resetting and reading the PG_Idle flags and/or the PTE Accessed bits of
+the pages.  We can also use DAMON for that by setting the minimal number
+of regions and maximum number of regions as 'the monitoring target
+region size / page size', and setting the sampling interval same to the
+aggregation interval.
+
+However, the metadata for the region abstraction (start address, end
+address, and observed accesses counter of each region) is only a huge
+burden in the case, compared to the without-DAMON strategy.  We could
+implement another monitoring primitive that doesn't use the 'struct
+damon_region' abstraction.  However, because the damon region
+abstraction is strongly coupled with the core logic, it would be not
+straightforward.
+
+To support such cases, this commit makes DAMON to support another type
+of monitoring targets that use user-defined arbitrary monitoring target
+regions instead of the 'struct damon_region'.
+---
+ include/linux/damon.h | 42 +++++++++++++++++++++++++++++++++-------
+ mm/damon/core.c       | 45 ++++++++++++++++++++++++++++---------------
+ mm/damon/dbgfs.c      |  2 +-
+ 3 files changed, 65 insertions(+), 24 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 715dadd21f7c..bb97b0d2f874 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -144,7 +144,8 @@ struct damon_ctx;
+  *
+  * @init should initialize primitive-internal data structures.  For example,
+  * this could be used to construct proper monitoring target regions and link
+- * those to @damon_ctx.adaptive_targets.
++ * those to @damon_ctx.target if @damon_ctx.target_type is
++ * &DAMON_ARBITRARY_TARGET.  Otherwise, &struct damon_region should be used.
+  * @update should update the primitive-internal data structures.  For example,
+  * this could be used to update monitoring target regions for current status.
+  * @prepare_access_checks should manipulate the monitoring regions to be
+@@ -159,7 +160,8 @@ struct damon_ctx;
+  * DAMON-based operation scheme is found.  It should apply the scheme's action
+  * to the region.  This is not used for &DAMON_ARBITRARY_TARGET case.
+  * @target_valid should check whether the target is still valid for the
+- * monitoring.
++ * monitoring.  It receives &damon_ctx.arbitrary_target or &struct damon_target
++ * pointer depends on &damon_ctx.target_type.
+  * @cleanup is called from @kdamond just before its termination.
+  */
+ struct damon_primitive {
+@@ -205,6 +207,17 @@ struct damon_callback {
+ 	int (*before_terminate)(struct damon_ctx *context);
+ };
+ 
++/**
++ * enum damon_target_type - Represents the type of the monitoring target.
++ *
++ * @DAMON_ADAPTIVE_TARGET:	Adaptive regions adjustment applied target.
++ * @DAMON_ARBITRARY_TARGET:	User-defined arbitrary type target.
++ */
++enum damon_target_type {
++	DAMON_ADAPTIVE_TARGET,
++	DAMON_ARBITRARY_TARGET,
++};
++
+ /**
+  * struct damon_ctx - Represents a context for each monitoring.  This is the
+  * main interface that allows users to set the attributes and get the results
+@@ -245,10 +258,18 @@ struct damon_callback {
+  * @primitive:	Set of monitoring primitives for given use cases.
+  * @callback:	Set of callbacks for monitoring events notifications.
+  *
++ * @target_type:	Type of the monitoring target.
++ *
+  * @min_nr_regions:	The minimum number of adaptive monitoring regions.
+  * @max_nr_regions:	The maximum number of adaptive monitoring regions.
+  * @adaptive_targets:	Head of monitoring targets (&damon_target) list.
+  * @schemes:		Head of schemes (&damos) list.
++ *
++ * @arbitrary_target:	Pointer to arbitrary type target.
++ *
++ * @min_nr_regions, @max_nr_regions, @adaptive_targets and @schemes are valid
++ * only if @target_type is &DAMON_ADAPTIVE_TARGET.  @arbitrary_target is valid
++ * only if @target_type is &DAMON_ARBITRARY_TARGET.
+  */
+ struct damon_ctx {
+ 	unsigned long sample_interval;
+@@ -267,10 +288,17 @@ struct damon_ctx {
+ 	struct damon_primitive primitive;
+ 	struct damon_callback callback;
+ 
+-	unsigned long min_nr_regions;
+-	unsigned long max_nr_regions;
+-	struct list_head adaptive_targets;
+-	struct list_head schemes;
++	enum damon_target_type target_type;
++	union {
++		struct {		/* DAMON_ADAPTIVE_TARGET */
++			unsigned long min_nr_regions;
++			unsigned long max_nr_regions;
++			struct list_head adaptive_targets;
++			struct list_head schemes;
++		};
++
++		void *arbitrary_target;	/* DAMON_ARBITRARY_TARGET */
++	};
+ };
+ 
+ #define damon_next_region(r) \
+@@ -320,7 +348,7 @@ void damon_free_target(struct damon_target *t);
+ void damon_destroy_target(struct damon_target *t);
+ unsigned int damon_nr_regions(struct damon_target *t);
+ 
+-struct damon_ctx *damon_new_ctx(void);
++struct damon_ctx *damon_new_ctx(enum damon_target_type type);
+ void damon_destroy_ctx(struct damon_ctx *ctx);
+ int damon_set_targets(struct damon_ctx *ctx,
+ 		unsigned long *ids, ssize_t nr_ids);
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index cb0b0db6bbab..af74d63302c5 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -176,7 +176,7 @@ unsigned int damon_nr_regions(struct damon_target *t)
+ 	return t->nr_regions;
+ }
+ 
+-struct damon_ctx *damon_new_ctx(void)
++struct damon_ctx *damon_new_ctx(enum damon_target_type type)
+ {
+ 	struct damon_ctx *ctx;
+ 
+@@ -193,11 +193,14 @@ struct damon_ctx *damon_new_ctx(void)
+ 
+ 	mutex_init(&ctx->kdamond_lock);
+ 
+-	ctx->min_nr_regions = 10;
+-	ctx->max_nr_regions = 1000;
++	ctx->target_type = type;
++	if (type != DAMON_ARBITRARY_TARGET) {
++		ctx->min_nr_regions = 10;
++		ctx->max_nr_regions = 1000;
+ 
+-	INIT_LIST_HEAD(&ctx->adaptive_targets);
+-	INIT_LIST_HEAD(&ctx->schemes);
++		INIT_LIST_HEAD(&ctx->adaptive_targets);
++		INIT_LIST_HEAD(&ctx->schemes);
++	}
+ 
+ 	return ctx;
+ }
+@@ -292,8 +295,10 @@ int damon_set_attrs(struct damon_ctx *ctx, unsigned long sample_int,
+ 	ctx->sample_interval = sample_int;
+ 	ctx->aggr_interval = aggr_int;
+ 	ctx->primitive_update_interval = primitive_upd_int;
+-	ctx->min_nr_regions = min_nr_reg;
+-	ctx->max_nr_regions = max_nr_reg;
++	if (ctx->target_type != DAMON_ARBITRARY_TARGET) {
++		ctx->min_nr_regions = min_nr_reg;
++		ctx->max_nr_regions = max_nr_reg;
++	}
+ 
+ 	return 0;
+ }
+@@ -747,6 +752,9 @@ static bool kdamond_need_stop(struct damon_ctx *ctx)
+ 	if (!ctx->primitive.target_valid)
+ 		return false;
+ 
++	if (ctx->target_type == DAMON_ARBITRARY_TARGET)
++		return !ctx->primitive.target_valid(ctx->arbitrary_target);
++
+ 	damon_for_each_target(t, ctx) {
+ 		if (ctx->primitive.target_valid(t))
+ 			return false;
+@@ -795,15 +803,18 @@ static int kdamond_fn(void *data)
+ 			max_nr_accesses = ctx->primitive.check_accesses(ctx);
+ 
+ 		if (kdamond_aggregate_interval_passed(ctx)) {
+-			kdamond_merge_regions(ctx,
+-					max_nr_accesses / 10,
+-					sz_limit);
++			if (ctx->target_type != DAMON_ARBITRARY_TARGET)
++				kdamond_merge_regions(ctx,
++						max_nr_accesses / 10,
++						sz_limit);
+ 			if (ctx->callback.after_aggregation &&
+ 					ctx->callback.after_aggregation(ctx))
+ 				set_kdamond_stop(ctx);
+-			kdamond_apply_schemes(ctx);
+-			kdamond_reset_aggregated(ctx);
+-			kdamond_split_regions(ctx);
++			if (ctx->target_type != DAMON_ARBITRARY_TARGET) {
++				kdamond_apply_schemes(ctx);
++				kdamond_reset_aggregated(ctx);
++				kdamond_split_regions(ctx);
++			}
+ 			if (ctx->primitive.reset_aggregated)
+ 				ctx->primitive.reset_aggregated(ctx);
+ 		}
+@@ -814,9 +825,11 @@ static int kdamond_fn(void *data)
+ 			sz_limit = damon_region_sz_limit(ctx);
+ 		}
+ 	}
+-	damon_for_each_target(t, ctx) {
+-		damon_for_each_region_safe(r, next, t)
+-			damon_destroy_region(r, t);
++	if (ctx->target_type != DAMON_ARBITRARY_TARGET) {
++		damon_for_each_target(t, ctx) {
++			damon_for_each_region_safe(r, next, t)
++				damon_destroy_region(r, t);
++		}
+ 	}
+ 
+ 	if (ctx->callback.before_terminate &&
+diff --git a/mm/damon/dbgfs.c b/mm/damon/dbgfs.c
+index e5d24c5185c4..ae3370bf248b 100644
+--- a/mm/damon/dbgfs.c
++++ b/mm/damon/dbgfs.c
+@@ -898,7 +898,7 @@ static struct damon_ctx *dbgfs_new_ctx(void)
+ {
+ 	struct damon_ctx *ctx;
+ 
+-	ctx = damon_new_ctx();
++	ctx = damon_new_ctx(DAMON_ADAPTIVE_TARGET);
+ 	if (!ctx)
+ 		return NULL;
+ 
+-- 
+2.32.0
+

@@ -1,0 +1,2059 @@
+From f51c443bdd4ed86ec152cb180b0700a8f3419b77 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Tue, 13 Sep 2022 21:29:02 -0700
+Subject: ENA: Update to v2.8.0
+
+Source: https://github.com/amzn/amzn-drivers/
+
+Change Log:
+
+## r2.8.0 release notes
+**Notes**
+* The driver is now dependent on the ptp module for loading
+  See README for more details.
+
+**New Features**
+* Add support for PTP HW clock
+* Add support for SRD metrics
+  Feature's enablement and documentation would be in future release
+
+**Bug Fixes**
+* Fix potential sign extension issue
+* Reduce memory footprint of some structs
+* Fix updating rx_copybreak issue
+* Fix xdp drops handling due to multibuf packets
+* Handle ena_calc_io_queue_size() possible errors
+* Destroy correct amount of xdp queues upon failure
+
+**Minor Changes**
+* Remove wide LLQ comment on supported versions
+* Backport uapi/bpf.h inclusion
+* Add a counter for driver's reset failures
+* Take xdp packets stats into account in ena_get_stats64()
+* Make queue stats code cleaner by removing if block
+* Remove redundant empty line
+* Remove confusing comment
+* Remove flag reading code duplication
+* Replace ENA local ENA_NAPI_BUDGET to global NAPI_POLL_WEIGHT
+* Change default print level for netif_ prints
+* Relocate skb_tx_timestamp() to improve time stamping accuracy
+* Backport bpf_warn_invalid_xdp_action() change
+* Fix incorrect indentation using spaces
+* Driver now compiles with Linux kernel 5.19
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+---
+ drivers/amazon/net/ena/Makefile         |   8 +-
+ drivers/amazon/net/ena/ena_admin_defs.h |  99 ++++++++++
+ drivers/amazon/net/ena/ena_com.c        | 244 ++++++++++++++++++++++-
+ drivers/amazon/net/ena/ena_com.h        |  94 ++++++++-
+ drivers/amazon/net/ena/ena_eth_com.h    |   2 +-
+ drivers/amazon/net/ena/ena_ethtool.c    | 217 +++++++++++++++------
+ drivers/amazon/net/ena/ena_netdev.c     | 130 +++++++++----
+ drivers/amazon/net/ena/ena_netdev.h     |  20 +-
+ drivers/amazon/net/ena/ena_phc.c        | 246 ++++++++++++++++++++++++
+ drivers/amazon/net/ena/ena_phc.h        |  43 +++++
+ drivers/amazon/net/ena/ena_regs_defs.h  |   8 +
+ drivers/amazon/net/ena/ena_sysfs.c      |  26 ++-
+ drivers/amazon/net/ena/ena_xdp.c        |  10 +-
+ drivers/amazon/net/ena/ena_xdp.h        |  12 +-
+ drivers/amazon/net/ena/kcompat.h        |  63 ++++++
+ 15 files changed, 1095 insertions(+), 127 deletions(-)
+ create mode 100644 drivers/amazon/net/ena/ena_phc.c
+ create mode 100644 drivers/amazon/net/ena/ena_phc.h
+
+diff --git a/drivers/amazon/net/ena/Makefile b/drivers/amazon/net/ena/Makefile
+index 37106200d6c1..b61366782d8d 100644
+--- a/drivers/amazon/net/ena/Makefile
++++ b/drivers/amazon/net/ena/Makefile
+@@ -6,11 +6,15 @@
+ 
+ obj-$(CONFIG_AMAZON_ENA_ETHERNET) += ena.o
+ 
+-ena-y := ena_netdev.o ena_ethtool.o ena_lpc.o ena_xdp.o dim.o ena_devlink.o \
+-         net_dim.o ena_com.o ena_eth_com.o
++ena-y := ena_netdev.o ena_ethtool.o ena_lpc.o ena_phc.o ena_xdp.o dim.o \
++	 ena_devlink.o net_dim.o ena_com.o ena_eth_com.o
+ 
+ ena-$(CONFIG_SYSFS) += ena_sysfs.o
+ 
+ ifdef TEST_AF_XDP
+ 	ccflags-y += -DENA_TEST_AF_XDP
+ endif
++
++ifdef ENA_PHC_INCLUDE
++	ccflags-y += -DENA_PHC_INCLUDE
++endif
+diff --git a/drivers/amazon/net/ena/ena_admin_defs.h b/drivers/amazon/net/ena/ena_admin_defs.h
+index 7f2595f2545c..a52f58844503 100644
+--- a/drivers/amazon/net/ena/ena_admin_defs.h
++++ b/drivers/amazon/net/ena/ena_admin_defs.h
+@@ -50,12 +50,15 @@ enum ena_admin_aq_feature_id {
+ 	ENA_ADMIN_AENQ_CONFIG                       = 26,
+ 	ENA_ADMIN_LINK_CONFIG                       = 27,
+ 	ENA_ADMIN_HOST_ATTR_CONFIG                  = 28,
++	ENA_ADMIN_PHC_CONFIG                        = 29,
+ 	ENA_ADMIN_FEATURES_OPCODE_NUM               = 32,
+ };
+ 
+ /* device capabilities */
+ enum ena_admin_aq_caps_id {
+ 	ENA_ADMIN_ENI_STATS                         = 0,
++	/* ENA SRD customer metrics */
++	ENA_ADMIN_ENA_SRD_INFO                      = 1,
+ };
+ 
+ enum ena_admin_placement_policy_type {
+@@ -104,6 +107,8 @@ enum ena_admin_get_stats_type {
+ 	ENA_ADMIN_GET_STATS_TYPE_EXTENDED           = 1,
+ 	/* extra HW stats for specific network interface */
+ 	ENA_ADMIN_GET_STATS_TYPE_ENI                = 2,
++	/* extra HW stats for ENA SRD */
++	ENA_ADMIN_GET_STATS_TYPE_ENA_SRD            = 3,
+ };
+ 
+ enum ena_admin_get_stats_scope {
+@@ -111,6 +116,20 @@ enum ena_admin_get_stats_scope {
+ 	ENA_ADMIN_ETH_TRAFFIC                       = 1,
+ };
+ 
++enum ena_admin_get_phc_type {
++	ENA_ADMIN_PHC_TYPE_READLESS                 = 0,
++};
++
++/* ENA SRD configuration for ENI */
++enum ena_admin_ena_srd_flags {
++	/* Feature enabled */
++	ENA_ADMIN_ENA_SRD_ENABLED                   = BIT(0),
++	/* UDP support enabled */
++	ENA_ADMIN_ENA_SRD_UDP_ENABLED               = BIT(1),
++	/* Bypass Rx UDP ordering */
++	ENA_ADMIN_ENA_SRD_UDP_ORDERING_BYPASS_ENABLED = BIT(2),
++};
++
+ struct ena_admin_aq_common_desc {
+ 	/* 11:0 : command_id
+ 	 * 15:12 : reserved12
+@@ -424,6 +443,32 @@ struct ena_admin_eni_stats {
+ 	u64 linklocal_allowance_exceeded;
+ };
+ 
++struct ena_admin_ena_srd_stats {
++	/* Number of packets transmitted over ENA SRD */
++	u64 ena_srd_tx_pkts;
++
++	/* Number of packets transmitted or could have been
++	 * transmitted over ENA SRD
++	 */
++	u64 ena_srd_eligible_tx_pkts;
++
++	/* Number of packets received over ENA SRD */
++	u64 ena_srd_rx_pkts;
++
++	/* Percentage of the ENA SRD resources that is in use */
++	u64 ena_srd_resource_utilization;
++};
++
++/* ENA SRD Statistics Command */
++struct ena_admin_ena_srd_info {
++	/* ENA SRD configuration bitmap. See ena_admin_ena_srd_flags for
++	 * details
++	 */
++	u64 flags;
++
++	struct ena_admin_ena_srd_stats ena_srd_stats;
++};
++
+ struct ena_admin_acq_get_stats_resp {
+ 	struct ena_admin_acq_common_desc acq_common_desc;
+ 
+@@ -433,6 +478,8 @@ struct ena_admin_acq_get_stats_resp {
+ 		struct ena_admin_basic_stats basic_stats;
+ 
+ 		struct ena_admin_eni_stats eni_stats;
++
++		struct ena_admin_ena_srd_info ena_srd_info;
+ 	} u;
+ };
+ 
+@@ -970,6 +1017,43 @@ struct ena_admin_queue_ext_feature_desc {
+ 	};
+ };
+ 
++struct ena_admin_feature_phc_desc {
++	/* PHC type as defined in enum ena_admin_get_phc_type,
++	 * used only for GET command.
++	 */
++	u8 type;
++
++	/* Reserved - MBZ */
++	u8 reserved1[3];
++
++	/* PHC doorbell address as an offset to PCIe MMIO REG BAR,
++	 * used only for GET command.
++	 */
++	u32 doorbell_offset;
++
++	/* Max time for valid PHC retrieval, passing this threshold will
++	 * fail the get-time request and block PHC requests for
++	 * block_timeout_usec, used only for GET command.
++	 */
++	u32 expire_timeout_usec;
++
++	/* PHC requests block period, blocking starts if PHC request expired
++	 * in order to prevent floods on busy device,
++	 * used only for GET command.
++	 */
++	u32 block_timeout_usec;
++
++	/* Shared PHC physical address (ena_admin_phc_resp),
++	 * used only for SET command.
++	 */
++	struct ena_common_mem_addr output_address;
++
++	/* Shared PHC Size (ena_admin_phc_resp),
++	 * used only for SET command.
++	 */
++	u32 output_length;
++};
++
+ struct ena_admin_get_feat_resp {
+ 	struct ena_admin_acq_common_desc acq_common_desc;
+ 
+@@ -1000,6 +1084,8 @@ struct ena_admin_get_feat_resp {
+ 
+ 		struct ena_admin_ena_hw_hints hw_hints;
+ 
++		struct ena_admin_feature_phc_desc phc;
++
+ 		struct ena_admin_get_extra_properties_strings_desc extra_properties_strings;
+ 
+ 		struct ena_admin_get_extra_properties_flags_desc extra_properties_flags;
+@@ -1036,6 +1122,9 @@ struct ena_admin_set_feat_cmd {
+ 
+ 		/* LLQ configuration */
+ 		struct ena_admin_feature_llq_desc llq;
++
++		/* PHC configuration */
++		struct ena_admin_feature_phc_desc phc;
+ 	} u;
+ };
+ 
+@@ -1114,6 +1203,16 @@ struct ena_admin_ena_mmio_req_read_less_resp {
+ 	u32 reg_val;
+ };
+ 
++struct ena_admin_phc_resp {
++	u16 req_id;
++
++	u8 reserved1[6];
++
++	u64 timestamp;
++
++	u8 reserved2[48];
++};
++
+ /* aq_common_desc */
+ #define ENA_ADMIN_AQ_COMMON_DESC_COMMAND_ID_MASK            GENMASK(11, 0)
+ #define ENA_ADMIN_AQ_COMMON_DESC_PHASE_MASK                 BIT(0)
+diff --git a/drivers/amazon/net/ena/ena_com.c b/drivers/amazon/net/ena/ena_com.c
+index 07d5d5eb5676..520dad1e549a 100644
+--- a/drivers/amazon/net/ena/ena_com.c
++++ b/drivers/amazon/net/ena/ena_com.c
+@@ -39,6 +39,12 @@
+ 
+ #define ENA_MAX_ADMIN_POLL_US 5000
+ 
++/* PHC definitions */
++#define ENA_PHC_DEFAULT_EXPIRE_TIMEOUT_USEC 20
++#define ENA_PHC_DEFAULT_BLOCK_TIMEOUT_USEC 1000
++#define ENA_PHC_TIMESTAMP_ERROR 0xFFFFFFFFFFFFFFFF
++#define ENA_PHC_REQ_ID_OFFSET 0xDEAD
++
+ /*****************************************************************************/
+ /*****************************************************************************/
+ /*****************************************************************************/
+@@ -361,7 +367,7 @@ static int ena_com_init_io_sq(struct ena_com_dev *ena_dev,
+ 			ENA_COM_BOUNCE_BUFFER_CNTRL_CNT;
+ 		io_sq->bounce_buf_ctrl.next_to_use = 0;
+ 
+-		size = io_sq->bounce_buf_ctrl.buffer_size *
++		size = (size_t)io_sq->bounce_buf_ctrl.buffer_size *
+ 			io_sq->bounce_buf_ctrl.buffers_num;
+ 
+ 		dev_node = dev_to_node(ena_dev->dmadev);
+@@ -1724,6 +1730,220 @@ void ena_com_set_admin_auto_polling_mode(struct ena_com_dev *ena_dev,
+ 	ena_dev->admin_queue.auto_polling = polling;
+ }
+ 
++bool ena_com_phc_supported(struct ena_com_dev *ena_dev)
++{
++	return ena_com_check_supported_feature_id(ena_dev, ENA_ADMIN_PHC_CONFIG);
++}
++
++int ena_com_phc_init(struct ena_com_dev *ena_dev)
++{
++	struct ena_com_phc_info *phc = &ena_dev->phc;
++
++	memset(phc, 0x0, sizeof(*phc));
++
++	/* Allocate shared mem used PHC timestamp retrieved from device */
++	phc->virt_addr =
++		dma_zalloc_coherent(ena_dev->dmadev, sizeof(*phc->virt_addr),
++				    &phc->phys_addr, GFP_KERNEL);
++	if (unlikely(!phc->virt_addr))
++		return -ENOMEM;
++
++	spin_lock_init(&phc->lock);
++
++	phc->virt_addr->req_id = 0;
++	phc->virt_addr->timestamp = 0;
++
++	return 0;
++}
++
++int ena_com_phc_config(struct ena_com_dev *ena_dev)
++{
++	struct ena_com_phc_info *phc = &ena_dev->phc;
++	struct ena_admin_get_feat_resp get_feat_resp;
++	struct ena_admin_set_feat_resp set_feat_resp;
++	struct ena_admin_set_feat_cmd set_feat_cmd;
++	int ret = 0;
++
++	/* Get device PHC default configuration */
++	ret = ena_com_get_feature(ena_dev, &get_feat_resp, ENA_ADMIN_PHC_CONFIG, 0);
++	if (unlikely(ret)) {
++		netdev_err(ena_dev->net_device,
++			   "Failed to get PHC feature configuration, error: %d\n",
++			   ret);
++		return ret;
++	}
++
++	/* Suporting only readless PHC retrieval */
++	if (get_feat_resp.u.phc.type != ENA_ADMIN_PHC_TYPE_READLESS) {
++		netdev_err(ena_dev->net_device,
++			   "Unsupprted PHC type, error: %d\n", -EOPNOTSUPP);
++		return -EOPNOTSUPP;
++	}
++
++	/* Update PHC doorbell offset according to device value, used to write req_id to PHC bar */
++	phc->doorbell_offset = get_feat_resp.u.phc.doorbell_offset;
++
++	/* Update PHC expire timeout according to device or default driver value */
++	phc->expire_timeout_usec = (get_feat_resp.u.phc.expire_timeout_usec) ?
++				    get_feat_resp.u.phc.expire_timeout_usec :
++				    ENA_PHC_DEFAULT_EXPIRE_TIMEOUT_USEC;
++
++	/* Update PHC block timeout according to device or default driver value */
++	phc->block_timeout_usec = (get_feat_resp.u.phc.block_timeout_usec) ?
++				   get_feat_resp.u.phc.block_timeout_usec :
++				   ENA_PHC_DEFAULT_BLOCK_TIMEOUT_USEC;
++
++	/* Sanity check - expire timeout must not be above skip timeout */
++	if (phc->expire_timeout_usec > phc->block_timeout_usec)
++		phc->expire_timeout_usec = phc->block_timeout_usec;
++
++	/* Prepare PHC feature command with PHC output address */
++	memset(&set_feat_cmd, 0x0, sizeof(set_feat_cmd));
++	set_feat_cmd.aq_common_descriptor.opcode = ENA_ADMIN_SET_FEATURE;
++	set_feat_cmd.feat_common.feature_id = ENA_ADMIN_PHC_CONFIG;
++	set_feat_cmd.u.phc.output_length = sizeof(*phc->virt_addr);
++	ret = ena_com_mem_addr_set(ena_dev, &set_feat_cmd.u.phc.output_address, phc->phys_addr);
++	if (unlikely(ret)) {
++		netdev_err(ena_dev->net_device,
++			   "Failed setting PHC output address, error: %d\n",
++			   ret);
++		return ret;
++	}
++
++	/* Send PHC feature command to the device */
++	ret = ena_com_execute_admin_command(&ena_dev->admin_queue,
++					    (struct ena_admin_aq_entry *)&set_feat_cmd,
++					    sizeof(set_feat_cmd),
++					    (struct ena_admin_acq_entry *)&set_feat_resp,
++					    sizeof(set_feat_resp));
++
++	if (unlikely(ret)) {
++		netdev_err(ena_dev->net_device,
++			   "Failed to enable PHC, error: %d\n", ret);
++		return ret;
++	}
++
++	phc->enabled = true;
++	netdev_dbg(ena_dev->net_device, "PHC is enabled\n");
++
++	return ret;
++}
++
++void ena_com_phc_destroy(struct ena_com_dev *ena_dev)
++{
++	struct ena_com_phc_info *phc = &ena_dev->phc;
++
++	phc->enabled = false;
++
++	/* In case PHC is not supported by the device, silently exiting */
++	if (!phc->virt_addr)
++		return;
++
++	dma_free_coherent(ena_dev->dmadev, sizeof(*phc->virt_addr),
++			  phc->virt_addr, phc->phys_addr);
++	phc->virt_addr = NULL;
++}
++
++int ena_com_phc_get(struct ena_com_dev *ena_dev, u64 *timestamp)
++{
++	volatile struct ena_admin_phc_resp *read_resp = ena_dev->phc.virt_addr;
++	struct ena_com_phc_info *phc = &ena_dev->phc;
++	ktime_t initial_time = ktime_set(0, 0);
++	static ktime_t start_time;
++	unsigned long flags = 0;
++	ktime_t expire_time;
++	ktime_t block_time;
++	int ret = 0;
++
++	if (!phc->enabled) {
++		netdev_err(ena_dev->net_device, "PHC feature is not enabled\n");
++		return -EOPNOTSUPP;
++	}
++
++	spin_lock_irqsave(&phc->lock, flags);
++
++	/* Check if PHC is in blocked state */
++	if (unlikely(ktime_compare(start_time, initial_time))) {
++		/* Check if blocking time expired */
++		block_time = ktime_add_us(start_time, phc->block_timeout_usec);
++		if (!ktime_after(ktime_get(), block_time)) {
++			/* PHC is still in blocked state, skip PHC request */
++			phc->stats.phc_skp++;
++			ret = -EBUSY;
++			goto skip;
++		}
++
++		/* PHC is in active state, update statistics according to req_id and timestamp */
++		if ((READ_ONCE(read_resp->req_id) != phc->req_id) ||
++		    (read_resp->timestamp == ENA_PHC_TIMESTAMP_ERROR)) {
++			/* Device didn't update req_id during blocking time or timestamp is invalid,
++			 * this indicates on a device error
++			 */
++			phc->stats.phc_err++;
++		} else {
++			/* Device updated req_id during blocking time with valid timestamp */
++			phc->stats.phc_exp++;
++		}
++	}
++
++	/* Setting relative timeouts */
++	start_time = ktime_get();
++	block_time = ktime_add_us(start_time, phc->block_timeout_usec);
++	expire_time = ktime_add_us(start_time, phc->expire_timeout_usec);
++
++	/* We expect the device to return this req_id once the new PHC timestamp is updated */
++	phc->req_id++;
++
++	/* Initialize PHC shared memory with different req_id value to be able to identify once the
++	 * device changes it to req_id
++	 */
++	read_resp->req_id = phc->req_id + ENA_PHC_REQ_ID_OFFSET;
++
++	/* Writing req_id to PHC bar */
++	writel(phc->req_id, ena_dev->reg_bar + phc->doorbell_offset);
++
++	/* Stalling until the device updates req_id */
++	while (1) {
++		if (unlikely(ktime_after(ktime_get(), expire_time))) {
++			/* Gave up waiting for updated req_id, PHC enters into
++			 * blocked state until passing blocking time
++			 */
++			ret = -EBUSY;
++			break;
++		}
++
++		/* Check if req_id was updated by the device */
++		if (READ_ONCE(read_resp->req_id) != phc->req_id) {
++			/* req_id was not updated by the device, check again on next loop */
++			continue;
++		}
++
++		/* req_id was updated which indicates that PHC timestamp was updated too */
++		*timestamp = read_resp->timestamp;
++
++		/* PHC timestamp validty check */
++		if (unlikely(*timestamp == ENA_PHC_TIMESTAMP_ERROR)) {
++			/* Retrieved invalid PHC timestamp, PHC enters into
++			 * blocked state until passing blocking time
++			 */
++			ret = -EBUSY;
++			break;
++		}
++
++		/* Retrieved valid PHC timestamp */
++		phc->stats.phc_cnt++;
++
++		/* This indicates PHC state is active */
++		start_time = initial_time;
++		break;
++	}
++
++skip:
++	spin_unlock_irqrestore(&phc->lock, flags);
++
++	return ret;
++}
++
+ int ena_com_mmio_reg_read_request_init(struct ena_com_dev *ena_dev)
+ {
+ 	struct ena_com_mmio_read *mmio_read = &ena_dev->mmio_read;
+@@ -2243,6 +2463,28 @@ int ena_com_get_eni_stats(struct ena_com_dev *ena_dev,
+ 	return ret;
+ }
+ 
++int ena_com_get_ena_srd_info(struct ena_com_dev *ena_dev,
++			      struct ena_admin_ena_srd_info *info)
++{
++	struct ena_com_stats_ctx ctx;
++	int ret;
++
++	if (!ena_com_get_cap(ena_dev, ENA_ADMIN_ENA_SRD_INFO)) {
++		netdev_err(ena_dev->net_device,
++			   "Capability %d isn't supported\n",
++			   ENA_ADMIN_ENA_SRD_INFO);
++		return -EOPNOTSUPP;
++	}
++
++	memset(&ctx, 0x0, sizeof(ctx));
++	ret = ena_get_dev_stats(ena_dev, &ctx, ENA_ADMIN_GET_STATS_TYPE_ENA_SRD);
++	if (likely(ret == 0))
++		memcpy(info, &ctx.get_resp.u.ena_srd_info,
++		       sizeof(ctx.get_resp.u.ena_srd_info));
++
++	return ret;
++}
++
+ int ena_com_get_dev_basic_stats(struct ena_com_dev *ena_dev,
+ 				struct ena_admin_basic_stats *stats)
+ {
+diff --git a/drivers/amazon/net/ena/ena_com.h b/drivers/amazon/net/ena/ena_com.h
+index 555cb822bbb1..ab17ba125ca3 100644
+--- a/drivers/amazon/net/ena/ena_com.h
++++ b/drivers/amazon/net/ena/ena_com.h
+@@ -211,6 +211,13 @@ struct ena_com_stats_admin {
+ 	u64 no_completion;
+ };
+ 
++struct ena_com_stats_phc {
++	u64 phc_cnt;
++	u64 phc_exp;
++	u64 phc_skp;
++	u64 phc_err;
++};
++
+ struct ena_com_admin_queue {
+ 	void *q_dmadev;
+ 	void *bus;
+@@ -263,6 +270,45 @@ struct ena_com_mmio_read {
+ 	spinlock_t lock;
+ };
+ 
++/* PTP hardware clock (PHC) MMIO read data info */
++struct ena_com_phc_info {
++	/* Internal PHC statistics */
++	struct ena_com_stats_phc stats;
++
++	/* PHC shared memory - virtual address */
++	struct ena_admin_phc_resp *virt_addr;
++
++	/* Spin lock to ensure a single outstanding PHC read */
++	spinlock_t lock;
++
++	/* PHC doorbell address as an offset to PCIe MMIO REG BAR */
++	u32 doorbell_offset;
++
++	/* Shared memory read expire timeout (usec)
++	 * Max time for valid PHC retrieval, passing this threshold will fail the get time request
++	 * and block new PHC requests for block_timeout_usec in order to prevent floods on busy
++	 * device
++	 */
++	u32 expire_timeout_usec;
++
++	/* Shared memory read abort timeout (usec)
++	 * PHC requests block period, blocking starts once PHC request expired in order to prevent
++	 * floods on busy device, any PHC requests during block period will be skipped
++	 */
++	u32 block_timeout_usec;
++
++	/* Request id sent to the device */
++	u16 req_id;
++
++	/* True if PHC is enabled */
++	bool enabled;
++
++	/* PHC shared memory - memory handle */
++
++	/* PHC shared memory - physical address */
++	dma_addr_t phys_addr;
++};
++
+ struct ena_rss {
+ 	/* Indirect table */
+ 	u16 *host_rss_ind_tbl;
+@@ -310,7 +356,10 @@ struct ena_com_dev {
+ 	u16 stats_func; /* Selected function for extended statistic dump */
+ 	u16 stats_queue; /* Selected queue for extended statistic dump */
+ 
++	u32 ena_min_poll_delay_us;
++
+ 	struct ena_com_mmio_read mmio_read;
++	struct ena_com_phc_info phc;
+ 
+ 	struct ena_rss rss;
+ 	u32 supported_features;
+@@ -330,8 +379,6 @@ struct ena_com_dev {
+ 	struct ena_intr_moder_entry *intr_moder_tbl;
+ 
+ 	struct ena_com_llq_info llq_info;
+-
+-	u32 ena_min_poll_delay_us;
+ };
+ 
+ struct ena_com_dev_get_features_ctx {
+@@ -376,6 +423,40 @@ struct ena_aenq_handlers {
+  */
+ int ena_com_mmio_reg_read_request_init(struct ena_com_dev *ena_dev);
+ 
++/* ena_com_phc_init - Allocate and initialize PHC feature
++ * @ena_dev: ENA communication layer struct
++ * @note: This method assumes PHC is supported by the device
++ * @return - 0 on success, negative value on failure
++ */
++int ena_com_phc_init(struct ena_com_dev *ena_dev);
++
++/* ena_com_phc_supported - Return if PHC feature is supported by the device
++ * @ena_dev: ENA communication layer struct
++ * @note: This method must be called after getting supported features
++ * @return - supported or not
++ */
++bool ena_com_phc_supported(struct ena_com_dev *ena_dev);
++
++/* ena_com_phc_config - Configure PHC feature
++ * @ena_dev: ENA communication layer struct
++ * Configure PHC feature in driver and device
++ * @note: This method assumes PHC is supported by the device
++ * @return - 0 on success, negative value on failure
++ */
++int ena_com_phc_config(struct ena_com_dev *ena_dev);
++
++/* ena_com_phc_destroy - Destroy PHC feature
++ * @ena_dev: ENA communication layer struct
++ */
++void ena_com_phc_destroy(struct ena_com_dev *ena_dev);
++
++/* ena_com_phc_get - Retrieve PHC timestamp
++ * @ena_dev: ENA communication layer struct
++ * @timestamp: Retrieve PHC timestamp
++ * @return - 0 on success, negative value on failure
++ */
++int ena_com_phc_get(struct ena_com_dev *ena_dev, u64 *timestamp);
++
+ /* ena_com_set_mmio_read_mode - Enable/disable the indirect mmio reg read mechanism
+  * @ena_dev: ENA communication layer struct
+  * @readless_supported: readless mode (enable/disable)
+@@ -612,6 +693,15 @@ int ena_com_get_dev_basic_stats(struct ena_com_dev *ena_dev,
+ int ena_com_get_eni_stats(struct ena_com_dev *ena_dev,
+ 			  struct ena_admin_eni_stats *stats);
+ 
++/* ena_com_get_ena_srd_info - Get ENA SRD network interface statistics
++ * @ena_dev: ENA communication layer struct
++ * @info: ena srd stats and flags
++ *
++ * @return: 0 on Success and negative value otherwise.
++ */
++int ena_com_get_ena_srd_info(struct ena_com_dev *ena_dev,
++			     struct ena_admin_ena_srd_info *info);
++
+ /* ena_com_set_dev_mtu - Configure the device mtu.
+  * @ena_dev: ENA communication layer struct
+  * @mtu: mtu value
+diff --git a/drivers/amazon/net/ena/ena_eth_com.h b/drivers/amazon/net/ena/ena_eth_com.h
+index 91207c657b73..028270a069d8 100644
+--- a/drivers/amazon/net/ena/ena_eth_com.h
++++ b/drivers/amazon/net/ena/ena_eth_com.h
+@@ -42,7 +42,7 @@ struct ena_com_rx_ctx {
+ 	bool frag;
+ 	u32 hash;
+ 	u16 descs;
+-	int max_bufs;
++	u16 max_bufs;
+ 	u8 pkt_offset;
+ };
+ 
+diff --git a/drivers/amazon/net/ena/ena_ethtool.c b/drivers/amazon/net/ena/ena_ethtool.c
+index b3bf0836a2c5..08f7ee8fc151 100644
+--- a/drivers/amazon/net/ena/ena_ethtool.c
++++ b/drivers/amazon/net/ena/ena_ethtool.c
+@@ -5,20 +5,27 @@
+ 
+ #include <linux/ethtool.h>
+ #include <linux/pci.h>
++#include <linux/net_tstamp.h>
+ 
+ #include "ena_netdev.h"
+ #include "ena_xdp.h"
++#include "ena_phc.h"
+ 
+ struct ena_stats {
+ 	char name[ETH_GSTRING_LEN];
+ 	int stat_offset;
+ };
+ 
+-#define ENA_STAT_ENA_COM_ENTRY(stat) { \
++#define ENA_STAT_ENA_COM_ADMIN_ENTRY(stat) { \
+ 	.name = #stat, \
+ 	.stat_offset = offsetof(struct ena_com_stats_admin, stat) / sizeof(u64) \
+ }
+ 
++#define ENA_STAT_ENA_COM_PHC_ENTRY(stat) { \
++	.name = #stat, \
++	.stat_offset = offsetof(struct ena_com_stats_phc, stat) / sizeof(u64) \
++}
++
+ #define ENA_STAT_ENTRY(stat, stat_type) { \
+ 	.name = #stat, \
+ 	.stat_offset = offsetof(struct ena_stats_##stat_type, stat) / sizeof(u64) \
+@@ -41,6 +48,14 @@ struct ena_stats {
+ #define ENA_STAT_ENI_ENTRY(stat) \
+ 	ENA_STAT_HW_ENTRY(stat, eni_stats)
+ 
++#define ENA_STAT_ENA_SRD_ENTRY(stat) \
++	ENA_STAT_HW_ENTRY(stat, ena_srd_stats)
++
++#define ENA_STAT_ENA_SRD_MODE_ENTRY(stat) { \
++	.name = #stat, \
++	.stat_offset = offsetof(struct ena_admin_ena_srd_info, flags) / sizeof(u64) \
++}
++
+ static const struct ena_stats ena_stats_global_strings[] = {
+ 	ENA_STAT_GLOBAL_ENTRY(tx_timeout),
+ 	ENA_STAT_GLOBAL_ENTRY(suspend),
+@@ -49,6 +64,7 @@ static const struct ena_stats ena_stats_global_strings[] = {
+ 	ENA_STAT_GLOBAL_ENTRY(interface_up),
+ 	ENA_STAT_GLOBAL_ENTRY(interface_down),
+ 	ENA_STAT_GLOBAL_ENTRY(admin_q_pause),
++	ENA_STAT_GLOBAL_ENTRY(reset_fail),
+ };
+ 
+ static const struct ena_stats ena_stats_eni_strings[] = {
+@@ -59,6 +75,14 @@ static const struct ena_stats ena_stats_eni_strings[] = {
+ 	ENA_STAT_ENI_ENTRY(linklocal_allowance_exceeded),
+ };
+ 
++static const struct ena_stats ena_srd_info_strings[] = {
++	ENA_STAT_ENA_SRD_MODE_ENTRY(ena_srd_mode),
++	ENA_STAT_ENA_SRD_ENTRY(ena_srd_tx_pkts),
++	ENA_STAT_ENA_SRD_ENTRY(ena_srd_eligible_tx_pkts),
++	ENA_STAT_ENA_SRD_ENTRY(ena_srd_rx_pkts),
++	ENA_STAT_ENA_SRD_ENTRY(ena_srd_resource_utilization)
++};
++
+ static const struct ena_stats ena_stats_tx_strings[] = {
+ 	ENA_STAT_TX_ENTRY(cnt),
+ 	ENA_STAT_TX_ENTRY(bytes),
+@@ -117,19 +141,28 @@ static const struct ena_stats ena_stats_rx_strings[] = {
+ #endif /* ENA_AF_XDP_SUPPORT */
+ };
+ 
+-static const struct ena_stats ena_stats_ena_com_strings[] = {
+-	ENA_STAT_ENA_COM_ENTRY(aborted_cmd),
+-	ENA_STAT_ENA_COM_ENTRY(submitted_cmd),
+-	ENA_STAT_ENA_COM_ENTRY(completed_cmd),
+-	ENA_STAT_ENA_COM_ENTRY(out_of_space),
+-	ENA_STAT_ENA_COM_ENTRY(no_completion),
++static const struct ena_stats ena_stats_ena_com_admin_strings[] = {
++	ENA_STAT_ENA_COM_ADMIN_ENTRY(aborted_cmd),
++	ENA_STAT_ENA_COM_ADMIN_ENTRY(submitted_cmd),
++	ENA_STAT_ENA_COM_ADMIN_ENTRY(completed_cmd),
++	ENA_STAT_ENA_COM_ADMIN_ENTRY(out_of_space),
++	ENA_STAT_ENA_COM_ADMIN_ENTRY(no_completion),
++};
++
++static const struct ena_stats ena_stats_ena_com_phc_strings[] = {
++	ENA_STAT_ENA_COM_PHC_ENTRY(phc_cnt),
++	ENA_STAT_ENA_COM_PHC_ENTRY(phc_exp),
++	ENA_STAT_ENA_COM_PHC_ENTRY(phc_skp),
++	ENA_STAT_ENA_COM_PHC_ENTRY(phc_err),
+ };
+ 
+ #define ENA_STATS_ARRAY_GLOBAL		ARRAY_SIZE(ena_stats_global_strings)
+ #define ENA_STATS_ARRAY_TX		ARRAY_SIZE(ena_stats_tx_strings)
+ #define ENA_STATS_ARRAY_RX		ARRAY_SIZE(ena_stats_rx_strings)
+-#define ENA_STATS_ARRAY_ENA_COM		ARRAY_SIZE(ena_stats_ena_com_strings)
+-#define ENA_STATS_ARRAY_ENI(adapter)	ARRAY_SIZE(ena_stats_eni_strings)
++#define ENA_STATS_ARRAY_ENA_COM_ADMIN	ARRAY_SIZE(ena_stats_ena_com_admin_strings)
++#define ENA_STATS_ARRAY_ENA_COM_PHC	ARRAY_SIZE(ena_stats_ena_com_phc_strings)
++#define ENA_STATS_ARRAY_ENI		ARRAY_SIZE(ena_stats_eni_strings)
++#define ENA_STATS_ARRAY_ENA_SRD		ARRAY_SIZE(ena_srd_info_strings)
+ 
+ static const char ena_priv_flags_strings[][ETH_GSTRING_LEN] = {
+ #define ENA_PRIV_FLAGS_LPC	BIT(0)
+@@ -185,14 +218,14 @@ static void ena_queue_stats(struct ena_adapter *adapter, u64 **data)
+ 	}
+ }
+ 
+-static void ena_dev_admin_queue_stats(struct ena_adapter *adapter, u64 **data)
++static void ena_com_admin_queue_stats(struct ena_adapter *adapter, u64 **data)
+ {
+ 	const struct ena_stats *ena_stats;
+ 	u64 *ptr;
+ 	int i;
+ 
+-	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM; i++) {
+-		ena_stats = &ena_stats_ena_com_strings[i];
++	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM_ADMIN; i++) {
++		ena_stats = &ena_stats_ena_com_admin_strings[i];
+ 
+ 		ptr = (u64 *)&adapter->ena_dev->admin_queue.stats +
+ 			ena_stats->stat_offset;
+@@ -201,9 +234,22 @@ static void ena_dev_admin_queue_stats(struct ena_adapter *adapter, u64 **data)
+ 	}
+ }
+ 
++static void ena_com_phc_stats(struct ena_adapter *adapter, u64 **data)
++{
++	const struct ena_stats *ena_stats;
++	u64 *ptr;
++	int i;
++
++	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM_PHC; i++) {
++		ena_stats = &ena_stats_ena_com_phc_strings[i];
++		ptr = (u64 *)&adapter->ena_dev->phc.stats + ena_stats->stat_offset;
++		*(*data)++ = *ptr;
++	}
++}
++
+ static void ena_get_stats(struct ena_adapter *adapter,
+ 			  u64 *data,
+-			  bool eni_stats_needed)
++			  bool hw_stats_needed)
+ {
+ 	const struct ena_stats *ena_stats;
+ 	u64 *ptr;
+@@ -217,20 +263,46 @@ static void ena_get_stats(struct ena_adapter *adapter,
+ 		ena_safe_update_stat(ptr, data++, &adapter->syncp);
+ 	}
+ 
+-	if (eni_stats_needed) {
+-		ena_update_hw_stats(adapter);
+-		for (i = 0; i < ENA_STATS_ARRAY_ENI(adapter); i++) {
+-			ena_stats = &ena_stats_eni_strings[i];
++	if (hw_stats_needed) {
++		if (ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENI_STATS)) {
++			ena_com_get_eni_stats(adapter->ena_dev, &adapter->eni_stats);
++			/* Updating regardless of rc - once we told ethtool how many stats we have
++			 * it will print that much stats. We can't leave holes in the stats
++			 */
++			for (i = 0; i < ENA_STATS_ARRAY_ENI; i++) {
++				ena_stats = &ena_stats_eni_strings[i];
+ 
+-			ptr = (u64 *)&adapter->eni_stats +
+-				ena_stats->stat_offset;
++				ptr = (u64 *)&adapter->eni_stats +
++					ena_stats->stat_offset;
+ 
++				ena_safe_update_stat(ptr, data++, &adapter->syncp);
++			}
++		}
++
++		if (ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENA_SRD_INFO)) {
++			ena_com_get_ena_srd_info(adapter->ena_dev, &adapter->ena_srd_info);
++			/* Get ENA SRD mode */
++			ptr = (u64 *)&adapter->ena_srd_info;
+ 			ena_safe_update_stat(ptr, data++, &adapter->syncp);
++			for (i = 1; i < ENA_STATS_ARRAY_ENA_SRD; i++) {
++				ena_stats = &ena_srd_info_strings[i];
++				/* Wrapped within an outer struct - need to accommodate an
++				 * additional offset of the ENA SRD mode that was already processed
++				 */
++				ptr = (u64 *)&adapter->ena_srd_info +
++					ena_stats->stat_offset + 1;
++
++				ena_safe_update_stat(ptr, data++, &adapter->syncp);
++			}
+ 		}
+ 	}
+ 
+ 	ena_queue_stats(adapter, &data);
+-	ena_dev_admin_queue_stats(adapter, &data);
++	ena_com_admin_queue_stats(adapter, &data);
++
++	if (ena_phc_enabled(adapter)) {
++		ena_com_phc_stats(adapter, &data);
++	}
+ }
+ 
+ static void ena_get_ethtool_stats(struct net_device *netdev,
+@@ -238,23 +310,41 @@ static void ena_get_ethtool_stats(struct net_device *netdev,
+ 				  u64 *data)
+ {
+ 	struct ena_adapter *adapter = netdev_priv(netdev);
+-	struct ena_com_dev *dev = adapter->ena_dev;
+ 
+-	ena_get_stats(adapter, data, ena_com_get_cap(dev, ENA_ADMIN_ENI_STATS));
++	ena_get_stats(adapter, data, true);
+ }
+ 
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
++static int ena_get_ts_info(struct net_device *netdev, struct ethtool_ts_info *info)
++{
++	struct ena_adapter *adapter = netdev_priv(netdev);
++
++	info->so_timestamping = SOF_TIMESTAMPING_TX_SOFTWARE |
++				SOF_TIMESTAMPING_RX_SOFTWARE |
++				SOF_TIMESTAMPING_SOFTWARE;
++
++	info->phc_index = ena_phc_get_index(adapter);
++
++	return 0;
++}
++
++#endif
+ static int ena_get_sw_stats_count(struct ena_adapter *adapter)
+ {
+-	return adapter->num_io_queues * (ENA_STATS_ARRAY_TX + ENA_STATS_ARRAY_RX)
+-		+ adapter->xdp_num_queues * ENA_STATS_ARRAY_TX
+-		+ ENA_STATS_ARRAY_GLOBAL + ENA_STATS_ARRAY_ENA_COM;
++	int count = adapter->num_io_queues * (ENA_STATS_ARRAY_TX + ENA_STATS_ARRAY_RX)
++		    + adapter->xdp_num_queues * ENA_STATS_ARRAY_TX
++		    + ENA_STATS_ARRAY_GLOBAL + ENA_STATS_ARRAY_ENA_COM_ADMIN;
++
++	if (ena_phc_enabled(adapter))
++		count += ENA_STATS_ARRAY_ENA_COM_PHC;
++
++	return count;
+ }
+ 
+ static int ena_get_hw_stats_count(struct ena_adapter *adapter)
+ {
+-	bool supported = ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENI_STATS);
+-
+-	return ENA_STATS_ARRAY_ENI(adapter) * supported;
++	return ENA_STATS_ARRAY_ENI * ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENI_STATS) +
++	       ENA_STATS_ARRAY_ENA_SRD * ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENA_SRD_INFO);
+ }
+ 
+ int ena_get_sset_count(struct net_device *netdev, int sset)
+@@ -290,37 +380,47 @@ static void ena_queue_strings(struct ena_adapter *adapter, u8 **data)
+ 					ena_stats->name);
+ 		}
+ 
+-		if (!is_xdp) {
+-			/* RX stats, in XDP there isn't a RX queue
+-			 * counterpart
+-			 */
+-			for (j = 0; j < ENA_STATS_ARRAY_RX; j++) {
+-				ena_stats = &ena_stats_rx_strings[j];
++		/* In XDP there isn't an RX queue counterpart */
++		if (is_xdp)
++			continue;
+ 
+-				ethtool_sprintf(data,
+-						"queue_%u_rx_%s", i,
+-						ena_stats->name);
+-			}
++		for (j = 0; j < ENA_STATS_ARRAY_RX; j++) {
++			ena_stats = &ena_stats_rx_strings[j];
++
++			ethtool_sprintf(data,
++					"queue_%u_rx_%s", i,
++					ena_stats->name);
+ 		}
+ 	}
+ }
+ 
+-static void ena_com_dev_strings(u8 **data)
++static void ena_com_admin_strings(u8 **data)
+ {
+ 	const struct ena_stats *ena_stats;
+ 	int i;
+ 
+-	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM; i++) {
+-		ena_stats = &ena_stats_ena_com_strings[i];
++	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM_ADMIN; i++) {
++		ena_stats = &ena_stats_ena_com_admin_strings[i];
+ 
+ 		ethtool_sprintf(data,
+ 				"ena_admin_q_%s", ena_stats->name);
+ 	}
+ }
+ 
++static void ena_com_phc_strings(u8 **data)
++{
++	const struct ena_stats *ena_stats;
++	int i;
++
++	for (i = 0; i < ENA_STATS_ARRAY_ENA_COM_PHC; i++) {
++		ena_stats = &ena_stats_ena_com_phc_strings[i];
++		ethtool_sprintf(data, "%s", ena_stats->name);
++	}
++}
++
+ static void ena_get_strings(struct ena_adapter *adapter,
+ 			    u8 *data,
+-			    bool eni_stats_needed)
++			    bool hw_stats_needed)
+ {
+ 	const struct ena_stats *ena_stats;
+ 	int i;
+@@ -330,15 +430,27 @@ static void ena_get_strings(struct ena_adapter *adapter,
+ 		ethtool_sprintf(&data, ena_stats->name);
+ 	}
+ 
+-	if (eni_stats_needed) {
+-		for (i = 0; i < ENA_STATS_ARRAY_ENI(adapter); i++) {
+-			ena_stats = &ena_stats_eni_strings[i];
+-			ethtool_sprintf(&data, ena_stats->name);
++	if (hw_stats_needed) {
++		if (ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENI_STATS)) {
++			for (i = 0; i < ENA_STATS_ARRAY_ENI; i++) {
++				ena_stats = &ena_stats_eni_strings[i];
++				ethtool_sprintf(&data, ena_stats->name);
++			}
++		}
++		if (ena_com_get_cap(adapter->ena_dev, ENA_ADMIN_ENA_SRD_INFO)) {
++			for (i = 0; i < ENA_STATS_ARRAY_ENA_SRD; i++) {
++				ena_stats = &ena_srd_info_strings[i];
++				ethtool_sprintf(&data, ena_stats->name);
++			}
+ 		}
+ 	}
+ 
+ 	ena_queue_strings(adapter, &data);
+-	ena_com_dev_strings(&data);
++	ena_com_admin_strings(&data);
++
++	if (ena_phc_enabled(adapter)) {
++		ena_com_phc_strings(&data);
++	}
+ }
+ 
+ static void ena_get_ethtool_strings(struct net_device *netdev,
+@@ -346,11 +458,10 @@ static void ena_get_ethtool_strings(struct net_device *netdev,
+ 				    u8 *data)
+ {
+ 	struct ena_adapter *adapter = netdev_priv(netdev);
+-	struct ena_com_dev *dev = adapter->ena_dev;
+ 
+ 	switch (sset) {
+ 	case ETH_SS_STATS:
+-		ena_get_strings(adapter, data, ena_com_get_cap(dev, ENA_ADMIN_ENI_STATS));
++		ena_get_strings(adapter, data, true);
+ 		break;
+ 	case ETH_SS_PRIV_FLAGS:
+ 		memcpy(data, ena_priv_flags_strings, sizeof(ena_priv_flags_strings));
+@@ -1060,11 +1171,7 @@ static int ena_set_tunable(struct net_device *netdev,
+ 	switch (tuna->id) {
+ 	case ETHTOOL_RX_COPYBREAK:
+ 		len = *(u32 *)data;
+-		if (len > min_t(u16, adapter->netdev->mtu, ENA_PAGE_SIZE)) {
+-			ret = -EINVAL;
+-			break;
+-		}
+-		adapter->rx_copybreak = len;
++		ret = ena_set_rx_copybreak(adapter, len);
+ 		break;
+ 	default:
+ 		ret = -EINVAL;
+@@ -1141,7 +1248,7 @@ static const struct ethtool_ops ena_ethtool_ops = {
+ 	.set_tunable		= ena_set_tunable,
+ #endif
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 5, 0)
+-	.get_ts_info            = ethtool_op_get_ts_info,
++	.get_ts_info		= ena_get_ts_info,
+ #endif
+ 	.get_priv_flags		= ena_get_priv_flags,
+ 	.set_priv_flags		= ena_set_priv_flags,
+diff --git a/drivers/amazon/net/ena/ena_netdev.c b/drivers/amazon/net/ena/ena_netdev.c
+index 55c3c141c81a..fbb96d864d8c 100644
+--- a/drivers/amazon/net/ena/ena_netdev.c
++++ b/drivers/amazon/net/ena/ena_netdev.c
+@@ -29,6 +29,7 @@
+ 
+ #include "ena_lpc.h"
+ 
++#include "ena_phc.h"
+ #include "ena_devlink.h"
+ 
+ static char version[] = DEVICE_NAME " v" DRV_MODULE_GENERATION "\n";
+@@ -43,10 +44,8 @@ MODULE_VERSION(DRV_MODULE_GENERATION);
+ 
+ #define ENA_MAX_RINGS min_t(unsigned int, ENA_MAX_NUM_IO_QUEUES, num_possible_cpus())
+ 
+-#define ENA_NAPI_BUDGET 64
+-
+ #define DEFAULT_MSG_ENABLE (NETIF_MSG_DRV | NETIF_MSG_PROBE | NETIF_MSG_IFUP | \
+-		NETIF_MSG_TX_DONE | NETIF_MSG_TX_ERR | NETIF_MSG_RX_ERR)
++		NETIF_MSG_IFDOWN | NETIF_MSG_TX_ERR | NETIF_MSG_RX_ERR)
+ #ifndef ENA_LINEAR_FRAG_SUPPORTED
+ 
+ #define ENA_SKB_PULL_MIN_LEN 64
+@@ -84,7 +83,7 @@ MODULE_DEVICE_TABLE(pci, ena_pci_tbl);
+ 
+ static int ena_rss_init_default(struct ena_adapter *adapter);
+ static void check_for_admin_com_state(struct ena_adapter *adapter);
+-static void ena_calc_io_queue_size(struct ena_adapter *adapter,
++static int ena_calc_io_queue_size(struct ena_adapter *adapter,
+ 				   struct ena_com_dev_get_features_ctx *get_feat_ctx);
+ static void ena_set_dev_offloads(struct ena_com_dev_get_features_ctx *feat,
+ 				 struct net_device *netdev);
+@@ -1060,7 +1059,7 @@ static struct sk_buff *ena_alloc_skb(struct ena_ring *rx_ring, void *first_frag,
+ 	else
+ 		skb = netdev_alloc_skb_ip_align(rx_ring->netdev,
+ 						ENA_SKB_PULL_MIN_LEN);
+-#endif
++#endif /* ENA_LINEAR_FRAG_SUPPORTED */
+ 
+ 	if (unlikely(!skb)) {
+ 		ena_increase_stat(&rx_ring->rx_stats.skb_alloc_fail, 1,
+@@ -1088,7 +1087,7 @@ static bool ena_try_rx_buf_page_reuse(struct ena_rx_buffer *rx_info, u16 buf_len
+ 		ena_buf->paddr += buf_len;
+ 		ena_buf->len -= buf_len;
+ 		return true;
+-        }
++	}
+ 
+ 	return false;
+ }
+@@ -1331,20 +1330,24 @@ void ena_set_rx_hash(struct ena_ring *rx_ring,
+ }
+ 
+ #ifdef ENA_XDP_SUPPORT
+-static int ena_xdp_handle_buff(struct ena_ring *rx_ring, struct xdp_buff *xdp)
++static int ena_xdp_handle_buff(struct ena_ring *rx_ring, struct xdp_buff *xdp, u16 num_descs)
+ {
+ 	struct ena_rx_buffer *rx_info;
+ 	int ret;
+ 
++	/* XDP multi-buffer packets not supported */
++	if (unlikely(num_descs > 1)) {
++		netdev_err_once(rx_ring->adapter->netdev,
++				"xdp: dropped multi-buffer packets. RX packets must be < %lu\n",
++				ENA_XDP_MAX_MTU);
++		ena_increase_stat(&rx_ring->rx_stats.xdp_drop, 1, &rx_ring->syncp);
++		return ENA_XDP_DROP;
++	}
++
+ 	rx_info = &rx_ring->rx_buffer_info[rx_ring->ena_bufs[0].req_id];
+ 	xdp_prepare_buff(xdp, page_address(rx_info->page),
+ 			 rx_info->buf_offset,
+ 			 rx_ring->ena_bufs[0].len, false);
+-	/* If for some reason we received a bigger packet than
+-	 * we expect, then we simply drop it
+-	 */
+-	if (unlikely(rx_ring->ena_bufs[0].len > ENA_XDP_MAX_MTU))
+-		return ENA_XDP_DROP;
+ 
+ 	ret = ena_xdp_execute(rx_ring, xdp);
+ 
+@@ -1424,7 +1427,7 @@ static int ena_clean_rx_irq(struct ena_ring *rx_ring, struct napi_struct *napi,
+ 
+ #ifdef ENA_XDP_SUPPORT
+ 		if (ena_xdp_present_ring(rx_ring))
+-			xdp_verdict = ena_xdp_handle_buff(rx_ring, &xdp);
++			xdp_verdict = ena_xdp_handle_buff(rx_ring, &xdp, ena_rx_ctx.descs);
+ 
+ 		/* allocate skb and fill it */
+ 		if (xdp_verdict == ENA_XDP_PASS)
+@@ -2036,7 +2039,7 @@ static void ena_init_napi_in_range(struct ena_adapter *adapter,
+ 		netif_napi_add(adapter->netdev,
+ 			       &napi->napi,
+ 			       napi_handler,
+-			       ENA_NAPI_BUDGET);
++			       NAPI_POLL_WEIGHT);
+ 
+ #ifdef ENA_BUSY_POLL_SUPPORT
+ 		napi_hash_add(&adapter->ena_napi[i].napi);
+@@ -2497,7 +2500,7 @@ void ena_down(struct ena_adapter *adapter)
+ {
+ 	int io_queue_count = adapter->num_io_queues + adapter->xdp_num_queues;
+ 
+-	netif_info(adapter, ifdown, adapter->netdev, "%s\n", __func__);
++	netif_dbg(adapter, ifdown, adapter->netdev, "%s\n", __func__);
+ 
+ 	clear_bit(ENA_FLAG_DEV_UP, &adapter->flags);
+ 
+@@ -2510,8 +2513,6 @@ void ena_down(struct ena_adapter *adapter)
+ 	/* After this point the napi handler won't enable the tx queue */
+ 	ena_napi_disable_in_range(adapter, 0, io_queue_count);
+ 
+-	/* After destroy the queue there won't be any new interrupts */
+-
+ 	if (test_bit(ENA_FLAG_TRIGGER_RESET, &adapter->flags)) {
+ 		int rc;
+ 
+@@ -2653,6 +2654,24 @@ int ena_update_queue_sizes(struct ena_adapter *adapter,
+ 	return dev_was_up ? ena_up(adapter) : 0;
+ }
+ 
++int ena_set_rx_copybreak(struct ena_adapter *adapter, u32 rx_copybreak)
++{
++	struct ena_ring *rx_ring;
++	int i;
++
++	if (rx_copybreak > min_t(u16, adapter->netdev->mtu, ENA_PAGE_SIZE))
++		return -EINVAL;
++
++	adapter->rx_copybreak = rx_copybreak;
++
++	for (i = 0; i < adapter->num_io_queues; i++) {
++		rx_ring = &adapter->rx_ring[i];
++		rx_ring->rx_copybreak = rx_copybreak;
++	}
++
++	return 0;
++}
++
+ int ena_update_queue_count(struct ena_adapter *adapter, u32 new_channel_count)
+ {
+ 	struct ena_com_dev *ena_dev = adapter->ena_dev;
+@@ -2902,8 +2921,6 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 	if (unlikely(rc))
+ 		goto error_drop_packet;
+ 
+-	skb_tx_timestamp(skb);
+-
+ 	next_to_use = tx_ring->next_to_use;
+ 	req_id = tx_ring->free_ids[next_to_use];
+ 	tx_info = &tx_ring->tx_buffer_info[req_id];
+@@ -2968,6 +2985,8 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 		}
+ 	}
+ 
++	skb_tx_timestamp(skb);
++
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
+ #ifdef HAVE_NETDEV_XMIT_MORE
+ 	if (netif_xmit_stopped(txq) || !netdev_xmit_more())
+@@ -3146,19 +3165,6 @@ static void ena_config_debug_area(struct ena_adapter *adapter)
+ 	ena_com_delete_debug_area(adapter->ena_dev);
+ }
+ 
+-int ena_update_hw_stats(struct ena_adapter *adapter)
+-{
+-	int rc;
+-
+-	rc = ena_com_get_eni_stats(adapter->ena_dev, &adapter->eni_stats);
+-	if (rc) {
+-		netdev_err(adapter->netdev, "Failed to get ENI stats\n");
+-		return rc;
+-	}
+-
+-	return 0;
+-}
+-
+ #if (LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,36))
+ #ifdef NDO_GET_STATS_64_V2
+ static void ena_get_stats64(struct net_device *netdev,
+@@ -3170,6 +3176,7 @@ static struct rtnl_link_stats64 *ena_get_stats64(struct net_device *netdev,
+ {
+ 	struct ena_adapter *adapter = netdev_priv(netdev);
+ 	struct ena_ring *rx_ring, *tx_ring;
++	u64 xdp_rx_drops = 0;
+ 	unsigned int start;
+ 	u64 rx_drops;
+ 	u64 tx_drops;
+@@ -3182,7 +3189,7 @@ static struct rtnl_link_stats64 *ena_get_stats64(struct net_device *netdev,
+ 		return NULL;
+ #endif
+ 
+-	for (i = 0; i < adapter->num_io_queues; i++) {
++	for (i = 0; i < adapter->num_io_queues + adapter->xdp_num_queues; i++) {
+ 		u64 bytes, packets;
+ 
+ 		tx_ring = &adapter->tx_ring[i];
+@@ -3196,12 +3203,17 @@ static struct rtnl_link_stats64 *ena_get_stats64(struct net_device *netdev,
+ 		stats->tx_packets += packets;
+ 		stats->tx_bytes += bytes;
+ 
++		/* In XDP there isn't an RX queue counterpart */
++		if (ENA_IS_XDP_INDEX(adapter, i))
++			continue;
++
+ 		rx_ring = &adapter->rx_ring[i];
+ 
+ 		do {
+ 			start = u64_stats_fetch_begin_irq(&rx_ring->syncp);
+ 			packets = rx_ring->rx_stats.cnt;
+ 			bytes = rx_ring->rx_stats.bytes;
++			xdp_rx_drops += ena_ring_xdp_drops_cnt(rx_ring);
+ 		} while (u64_stats_fetch_retry_irq(&rx_ring->syncp, start));
+ 
+ 		stats->rx_packets += packets;
+@@ -3214,7 +3226,7 @@ static struct rtnl_link_stats64 *ena_get_stats64(struct net_device *netdev,
+ 		tx_drops = adapter->dev_stats.tx_drops;
+ 	} while (u64_stats_fetch_retry_irq(&adapter->syncp, start));
+ 
+-	stats->rx_dropped = rx_drops;
++	stats->rx_dropped = rx_drops + xdp_rx_drops;
+ 	stats->tx_dropped = tx_drops;
+ 
+ 	stats->multicast = 0;
+@@ -3570,15 +3582,26 @@ static int ena_device_init(struct ena_adapter *adapter, struct pci_dev *pdev,
+ 		goto err_admin_init;
+ 	}
+ 
+-	ena_calc_io_queue_size(adapter, get_feat_ctx);
++	rc = ena_calc_io_queue_size(adapter, get_feat_ctx);
++	if (unlikely(rc))
++		goto err_admin_init;
+ 
+ 	/* Turned on features shouldn't change due to reset. */
+ 	prev_netdev_features = adapter->netdev->features;
+ 	ena_set_dev_offloads(get_feat_ctx, adapter->netdev);
+ 	adapter->netdev->features = prev_netdev_features;
++
++	rc = ena_phc_init(adapter);
++	if (unlikely(rc && (rc != -EOPNOTSUPP))) {
++		netdev_err(netdev, "Failed initiating PHC, error: %d\n", rc);
++		goto err_admin_init;
++	}
++
+ 	return 0;
+ 
+ err_admin_init:
++	ena_com_abort_admin_commands(ena_dev);
++	ena_com_wait_for_abort_completion(ena_dev);
+ 	ena_com_delete_host_info(ena_dev);
+ 	ena_com_admin_destroy(ena_dev);
+ err_mmio_read_less:
+@@ -3619,14 +3642,15 @@ static int ena_enable_msix_and_set_admin_interrupts(struct ena_adapter *adapter)
+ 	return rc;
+ }
+ 
+-void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
++int ena_destroy_device(struct ena_adapter *adapter, bool graceful)
+ {
+ 	struct net_device *netdev = adapter->netdev;
+ 	struct ena_com_dev *ena_dev = adapter->ena_dev;
+ 	bool dev_up;
++	int rc = 0;
+ 
+ 	if (!test_bit(ENA_FLAG_DEVICE_RUNNING, &adapter->flags))
+-		return;
++		return 0;
+ 
+ 	netif_carrier_off(netdev);
+ 
+@@ -3638,14 +3662,14 @@ void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
+ 	if (!graceful)
+ 		ena_com_set_admin_running_state(ena_dev, false);
+ 
+-	if (test_bit(ENA_FLAG_DEV_UP, &adapter->flags))
++	if (dev_up)
+ 		ena_down(adapter);
+ 
+ 	/* Stop the device from sending AENQ events (in case reset flag is set
+ 	 *  and device is up, ena_down() already reset the device.
+ 	 */
+ 	if (!(test_bit(ENA_FLAG_TRIGGER_RESET, &adapter->flags) && dev_up))
+-		ena_com_dev_reset(adapter->ena_dev, adapter->reset_reason);
++		rc = ena_com_dev_reset(adapter->ena_dev, adapter->reset_reason);
+ 
+ 	ena_free_mgmnt_irq(adapter);
+ 
+@@ -3657,6 +3681,8 @@ void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
+ 
+ 	ena_com_admin_destroy(ena_dev);
+ 
++	ena_phc_destroy(adapter);
++
+ 	ena_com_mmio_reg_read_request_destroy(ena_dev);
+ 
+ 	/* return reset reason to default value */
+@@ -3664,6 +3690,8 @@ void ena_destroy_device(struct ena_adapter *adapter, bool graceful)
+ 
+ 	clear_bit(ENA_FLAG_TRIGGER_RESET, &adapter->flags);
+ 	clear_bit(ENA_FLAG_DEVICE_RUNNING, &adapter->flags);
++
++	return rc;
+ }
+ 
+ int ena_restore_device(struct ena_adapter *adapter)
+@@ -3727,6 +3755,7 @@ int ena_restore_device(struct ena_adapter *adapter)
+ 	ena_com_wait_for_abort_completion(ena_dev);
+ 	ena_com_admin_destroy(ena_dev);
+ 	ena_com_dev_reset(ena_dev, ENA_REGS_RESET_DRIVER_INVALID_STATE);
++	ena_phc_destroy(adapter);
+ 	ena_com_mmio_reg_read_request_destroy(ena_dev);
+ err:
+ 	clear_bit(ENA_FLAG_DEVICE_RUNNING, &adapter->flags);
+@@ -3739,14 +3768,17 @@ int ena_restore_device(struct ena_adapter *adapter)
+ 
+ static void ena_fw_reset_device(struct work_struct *work)
+ {
++	int rc = 0;
++
+ 	struct ena_adapter *adapter =
+ 		container_of(work, struct ena_adapter, reset_task);
+ 
+ 	rtnl_lock();
+ 
+ 	if (likely(test_bit(ENA_FLAG_TRIGGER_RESET, &adapter->flags))) {
+-		ena_destroy_device(adapter, false);
+-		ena_restore_device(adapter);
++		rc |= ena_destroy_device(adapter, false);
++		rc |= ena_restore_device(adapter);
++		adapter->dev_stats.reset_fail += !!rc;
+ 
+ 		dev_err(&adapter->pdev->dev,
+ 			"Device reset completed successfully, Driver info: %s\n",
+@@ -4267,7 +4299,7 @@ static void ena_release_bars(struct ena_com_dev *ena_dev, struct pci_dev *pdev)
+ }
+ 
+ 
+-static void ena_calc_io_queue_size(struct ena_adapter *adapter,
++static int ena_calc_io_queue_size(struct ena_adapter *adapter,
+ 				   struct ena_com_dev_get_features_ctx *get_feat_ctx)
+ {
+ 	struct ena_admin_feature_llq_desc *llq = &get_feat_ctx->llq;
+@@ -4327,6 +4359,18 @@ static void ena_calc_io_queue_size(struct ena_adapter *adapter,
+ 	max_tx_queue_size = rounddown_pow_of_two(max_tx_queue_size);
+ 	max_rx_queue_size = rounddown_pow_of_two(max_rx_queue_size);
+ 
++	if (max_tx_queue_size < ENA_MIN_RING_SIZE) {
++		netdev_err(adapter->netdev, "Device max TX queue size: %d < minimum: %d\n",
++			   max_tx_queue_size, ENA_MIN_RING_SIZE);
++		return -EFAULT;
++	}
++
++	if (max_rx_queue_size < ENA_MIN_RING_SIZE) {
++		netdev_err(adapter->netdev, "Device max RX queue size: %d < minimum: %d\n",
++			   max_rx_queue_size, ENA_MIN_RING_SIZE);
++		return -EFAULT;
++	}
++
+ 	/* When forcing large headers, we multiply the entry size by 2,
+ 	 * and therefore divide the queue size by 2, leaving the amount
+ 	 * of memory used by the queues unchanged.
+@@ -4357,6 +4401,8 @@ static void ena_calc_io_queue_size(struct ena_adapter *adapter,
+ 	adapter->max_rx_ring_size = max_rx_queue_size;
+ 	adapter->requested_tx_ring_size = tx_queue_size;
+ 	adapter->requested_rx_ring_size = rx_queue_size;
++
++	return 0;
+ }
+ 
+ /* ena_probe - Device Initialization Routine
+diff --git a/drivers/amazon/net/ena/ena_netdev.h b/drivers/amazon/net/ena/ena_netdev.h
+index e19cd75be698..7b373cf6545e 100644
+--- a/drivers/amazon/net/ena/ena_netdev.h
++++ b/drivers/amazon/net/ena/ena_netdev.h
+@@ -19,14 +19,17 @@
+ #include <linux/interrupt.h>
+ #include <linux/netdevice.h>
+ #include <linux/skbuff.h>
++#ifdef HAS_BPF_HEADER
++#include <uapi/linux/bpf.h>
++#endif
+ #include <linux/u64_stats_sync.h>
+ 
+ #include "ena_com.h"
+ #include "ena_eth_com.h"
+ 
+ #define DRV_MODULE_GEN_MAJOR	2
+-#define DRV_MODULE_GEN_MINOR	7
+-#define DRV_MODULE_GEN_SUBMINOR 4
++#define DRV_MODULE_GEN_MINOR	8
++#define DRV_MODULE_GEN_SUBMINOR 0
+ 
+ #define DRV_MODULE_NAME		"ena"
+ #ifndef DRV_MODULE_GENERATION
+@@ -122,6 +125,8 @@
+ 
+ struct ena_page_cache;
+ 
++struct ena_phc_info;
++
+ struct ena_irq {
+ 	irq_handler_t handler;
+ 	void *data;
+@@ -349,6 +354,7 @@ struct ena_stats_dev {
+ 	u64 admin_q_pause;
+ 	u64 rx_drops;
+ 	u64 tx_drops;
++	u64 reset_fail;
+ };
+ 
+ enum ena_flags_t {
+@@ -439,6 +445,7 @@ struct ena_adapter {
+ 	struct u64_stats_sync syncp;
+ 	struct ena_stats_dev dev_stats;
+ 	struct ena_admin_eni_stats eni_stats;
++	struct ena_admin_ena_srd_info ena_srd_info;
+ 
+ 	/* last queue index that was checked for uncompleted tx packets */
+ 	u32 last_monitored_tx_qid;
+@@ -450,6 +457,8 @@ struct ena_adapter {
+ #endif
+ 	u32 xdp_first_ring;
+ 	u32 xdp_num_queues;
++
++	struct ena_phc_info *phc_info;
+ };
+ 
+ void ena_set_ethtool_ops(struct net_device *netdev);
+@@ -458,7 +467,6 @@ void ena_dump_stats_to_dmesg(struct ena_adapter *adapter);
+ 
+ void ena_dump_stats_to_buf(struct ena_adapter *adapter, u8 *buf);
+ 
+-int ena_update_hw_stats(struct ena_adapter *adapter);
+ 
+ int ena_set_lpc_state(struct ena_adapter *adapter, bool enabled);
+ 
+@@ -468,6 +476,8 @@ int ena_update_queue_sizes(struct ena_adapter *adapter,
+ 
+ int ena_update_queue_count(struct ena_adapter *adapter, u32 new_channel_count);
+ 
++int ena_set_rx_copybreak(struct ena_adapter *adapter, u32 rx_copybreak);
++
+ int ena_get_sset_count(struct net_device *netdev, int sset);
+ #ifdef ENA_BUSY_POLL_SUPPORT
+ static inline void ena_bp_init_lock(struct ena_ring *rx_ring)
+@@ -556,7 +566,7 @@ static inline void ena_reset_device(struct ena_adapter *adapter,
+  */
+ struct page *ena_alloc_map_page(struct ena_ring *rx_ring, dma_addr_t *dma);
+ 
+-void ena_destroy_device(struct ena_adapter *adapter, bool graceful);
++int ena_destroy_device(struct ena_adapter *adapter, bool graceful);
+ int ena_restore_device(struct ena_adapter *adapter);
+ int handle_invalid_req_id(struct ena_ring *ring, u16 req_id,
+ 			  struct ena_tx_buffer *tx_info, bool is_xdp);
+@@ -590,6 +600,8 @@ int ena_create_io_tx_queues_in_range(struct ena_adapter *adapter,
+ 				     int first_index, int count);
+ int ena_setup_tx_resources_in_range(struct ena_adapter *adapter,
+ 				    int first_index, int count);
++void ena_free_all_io_tx_resources_in_range(struct ena_adapter *adapter,
++					int first_index, int count);
+ void ena_free_all_io_tx_resources(struct ena_adapter *adapter);
+ void ena_down(struct ena_adapter *adapter);
+ int ena_up(struct ena_adapter *adapter);
+diff --git a/drivers/amazon/net/ena/ena_phc.c b/drivers/amazon/net/ena/ena_phc.c
+new file mode 100644
+index 000000000000..46e21d3202a1
+--- /dev/null
++++ b/drivers/amazon/net/ena/ena_phc.c
+@@ -0,0 +1,246 @@
++// SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
++/*
++ * Copyright 2015-2022 Amazon.com, Inc. or its affiliates. All rights reserved.
++ */
++
++#include "ena_phc.h"
++
++#ifdef ENA_PHC_SUPPORT
++
++static int ena_phc_adjfreq(struct ptp_clock_info *clock_info, s32 ppb)
++{
++	return -EOPNOTSUPP;
++}
++
++static int ena_phc_adjtime(struct ptp_clock_info *clock_info, s64 delta)
++{
++	return -EOPNOTSUPP;
++}
++
++static int ena_phc_enable(struct ptp_clock_info *clock_info, struct ptp_clock_request *rq, int on)
++{
++	return -EOPNOTSUPP;
++}
++
++#ifdef ENA_PHC_SUPPORT_GETTIME64
++#ifdef ENA_PHC_SUPPORT_GETTIME64_EXTENDED
++static int ena_phc_gettimex64(struct ptp_clock_info *clock_info, struct timespec64 *ts,
++			      struct ptp_system_timestamp *sts)
++{
++	struct ena_phc_info *phc_info = container_of(clock_info, struct ena_phc_info, clock_info);
++	unsigned long flags;
++	u64 timestamp_nsec;
++	int rc;
++
++	spin_lock_irqsave(&phc_info->lock, flags);
++
++	ptp_read_system_prets(sts);
++
++	rc = ena_com_phc_get(phc_info->adapter->ena_dev, &timestamp_nsec);
++
++	ptp_read_system_postts(sts);
++
++	spin_unlock_irqrestore(&phc_info->lock, flags);
++
++	*ts = ns_to_timespec64(timestamp_nsec);
++
++	return rc;
++}
++
++#else /* ENA_PHC_SUPPORT_GETTIME64_EXTENDED */
++static int ena_phc_gettime64(struct ptp_clock_info *clock_info, struct timespec64 *ts)
++{
++	struct ena_phc_info *phc_info = container_of(clock_info, struct ena_phc_info, clock_info);
++	unsigned long flags;
++	u64 timestamp_nsec;
++	int rc;
++
++	spin_lock_irqsave(&phc_info->lock, flags);
++
++	rc = ena_com_phc_get(phc_info->adapter->ena_dev, &timestamp_nsec);
++
++	spin_unlock_irqrestore(&phc_info->lock, flags);
++
++	*ts = ns_to_timespec64(timestamp_nsec);
++
++	return rc;
++}
++
++#endif /* ENA_PHC_SUPPORT_GETTIME64_EXTENDED */
++static int ena_phc_settime64(struct ptp_clock_info *clock_info,
++			     const struct timespec64 *ts)
++{
++	return -EOPNOTSUPP;
++}
++
++#else /* ENA_PHC_SUPPORT_GETTIME64 */
++static int ena_phc_gettime(struct ptp_clock_info *clock_info, struct timespec *ts)
++{
++	struct ena_phc_info *phc_info = container_of(clock_info, struct ena_phc_info, clock_info);
++	unsigned long flags;
++	u64 timestamp_nsec;
++	u32 remainder;
++	int rc;
++
++	spin_lock_irqsave(&phc_info->lock, flags);
++
++	rc = ena_com_phc_get(phc_info->adapter->ena_dev, &timestamp_nsec);
++
++	spin_unlock_irqrestore(&phc_info->lock, flags);
++
++	ts->tv_sec = div_u64_rem(timestamp_nsec, NSEC_PER_SEC, &remainder);
++	ts->tv_nsec = remainder;
++
++	return rc;
++}
++
++static int ena_phc_settime(struct ptp_clock_info *clock_info, const struct timespec *ts)
++{
++	return -EOPNOTSUPP;
++}
++
++#endif /* ENA_PHC_SUPPORT_GETTIME64 */
++
++static struct ptp_clock_info ena_ptp_clock_info = {
++	.owner		= THIS_MODULE,
++	.n_alarm	= 0,
++	.n_ext_ts	= 0,
++	.n_per_out	= 0,
++	.pps		= 0,
++	.adjfreq	= ena_phc_adjfreq,
++	.adjtime	= ena_phc_adjtime,
++#ifdef ENA_PHC_SUPPORT_GETTIME64
++#ifdef ENA_PHC_SUPPORT_GETTIME64_EXTENDED
++	.gettimex64	= ena_phc_gettimex64,
++#else /* ENA_PHC_SUPPORT_GETTIME64_EXTENDED */
++	.gettime64	= ena_phc_gettime64,
++#endif /* ENA_PHC_SUPPORT_GETTIME64_EXTENDED */
++	.settime64	= ena_phc_settime64,
++#else /* ENA_PHC_SUPPORT_GETTIME64 */
++	.gettime	= ena_phc_gettime,
++	.settime	= ena_phc_settime,
++#endif /* ENA_PHC_SUPPORT_GETTIME64 */
++	.enable		= ena_phc_enable,
++};
++
++static int ena_phc_register(struct ena_adapter *adapter)
++{
++	struct pci_dev *pdev = adapter->pdev;
++	struct ptp_clock_info *clock_info;
++	struct ena_phc_info *phc_info;
++	int rc = 0;
++
++	phc_info = adapter->phc_info;
++	clock_info = &phc_info->clock_info;
++
++	phc_info->adapter = adapter;
++
++	spin_lock_init(&phc_info->lock);
++
++	/* Fill the ptp_clock_info struct and register PTP clock */
++	*clock_info = ena_ptp_clock_info;
++	snprintf(clock_info->name,
++		 sizeof(clock_info->name),
++		 "ena-ptp-%02x",
++		 PCI_SLOT(pdev->devfn));
++
++	phc_info->clock = ptp_clock_register(clock_info, &pdev->dev);
++	if (IS_ERR(phc_info->clock)) {
++		rc = PTR_ERR(phc_info->clock);
++		netdev_err(adapter->netdev, "Failed registering ptp clock, error: %d\n", rc);
++		phc_info->clock = NULL;
++	}
++
++	return rc;
++}
++
++bool ena_phc_enabled(struct ena_adapter *adapter)
++{
++	struct ena_phc_info *phc_info = adapter->phc_info;
++
++	return (phc_info && phc_info->clock);
++}
++
++static void ena_phc_unregister(struct ena_adapter *adapter)
++{
++	struct ena_phc_info *phc_info = adapter->phc_info;
++
++	if (ena_phc_enabled(adapter))
++		ptp_clock_unregister(phc_info->clock);
++}
++
++int ena_phc_init(struct ena_adapter *adapter)
++{
++	struct ena_com_dev *ena_dev = adapter->ena_dev;
++	struct net_device *netdev = adapter->netdev;
++	int rc = -EOPNOTSUPP;
++
++	/* Validate phc feature is supported in the device */
++	if (!ena_com_phc_supported(ena_dev)) {
++		netdev_dbg(netdev, "PHC feature is not supported\n");
++		goto err_ena_com_phc_init;
++	}
++
++	/* Allocate and initialize device specific PHC info */
++	rc = ena_com_phc_init(ena_dev);
++	if (unlikely(rc)) {
++		netdev_err(netdev, "Failed to init phc, error: %d\n", rc);
++		goto err_ena_com_phc_init;
++	}
++
++	/* Configure PHC feature in driver and device */
++	rc = ena_com_phc_config(ena_dev);
++	if (unlikely(rc)) {
++		netdev_err(netdev, "Failed to config phc, error: %d\n", rc);
++		goto err_ena_com_phc_config;
++	}
++
++	/* Allocate and initialize driver specific PHC info */
++	adapter->phc_info = vzalloc(sizeof(*adapter->phc_info));
++	if (unlikely(!adapter->phc_info)) {
++		rc = -ENOMEM;
++		netdev_err(netdev, "Failed to alloc phc_info, error: %d\n", rc);
++		goto err_ena_com_phc_config;
++	}
++
++	/* Register to PTP class driver */
++	rc = ena_phc_register(adapter);
++	if (unlikely(rc)) {
++		netdev_err(netdev, "Failed to register phc, error: %d\n", rc);
++		goto err_ena_phc_register;
++	}
++
++	return 0;
++
++err_ena_phc_register:
++	vfree(adapter->phc_info);
++	adapter->phc_info = NULL;
++err_ena_com_phc_config:
++	ena_com_phc_destroy(ena_dev);
++err_ena_com_phc_init:
++	return rc;
++}
++
++void ena_phc_destroy(struct ena_adapter *adapter)
++{
++	ena_phc_unregister(adapter);
++
++	if (likely(adapter->phc_info)) {
++		vfree(adapter->phc_info);
++		adapter->phc_info = NULL;
++	}
++
++	ena_com_phc_destroy(adapter->ena_dev);
++}
++
++int ena_phc_get_index(struct ena_adapter *adapter)
++{
++	struct ena_phc_info *phc_info = adapter->phc_info;
++
++	if (ena_phc_enabled(adapter))
++		return ptp_clock_index(phc_info->clock);
++
++	return -1;
++}
++
++#endif /* ENA_PHC_SUPPORT */
+diff --git a/drivers/amazon/net/ena/ena_phc.h b/drivers/amazon/net/ena/ena_phc.h
+new file mode 100644
+index 000000000000..f08ff473bd1e
+--- /dev/null
++++ b/drivers/amazon/net/ena/ena_phc.h
+@@ -0,0 +1,43 @@
++/* SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB */
++/*
++ * Copyright 2015-2022 Amazon.com, Inc. or its affiliates. All rights reserved.
++ */
++
++#ifndef ENA_PHC_H
++#define ENA_PHC_H
++
++#include "ena_netdev.h"
++
++#ifdef ENA_PHC_SUPPORT
++
++#include <linux/ptp_clock_kernel.h>
++
++struct ena_phc_info {
++	/* PTP hardware capabilities */
++	struct ptp_clock_info clock_info;
++
++	/* Registered PTP clock device */
++	struct ptp_clock *clock;
++
++	/* Adapter specific private data structure */
++	struct ena_adapter *adapter;
++
++	/* PHC lock */
++	spinlock_t lock;
++};
++
++bool ena_phc_enabled(struct ena_adapter *adapter);
++int ena_phc_get_index(struct ena_adapter *adapter);
++int ena_phc_init(struct ena_adapter *adapter);
++void ena_phc_destroy(struct ena_adapter *adapter);
++
++#else /* ENA_PHC_SUPPORT */
++
++static inline bool ena_phc_enabled(struct ena_adapter *adapter) {return false; }
++static inline int ena_phc_get_index(struct ena_adapter *adapter) { return -1; }
++static inline int ena_phc_init(struct ena_adapter *adapter) { return 0; }
++static inline void ena_phc_destroy(struct ena_adapter *adapter) { }
++
++#endif /* ENA_PHC_SUPPORT */
++
++#endif /* ENA_PHC_H */
+diff --git a/drivers/amazon/net/ena/ena_regs_defs.h b/drivers/amazon/net/ena/ena_regs_defs.h
+index 8ca6f795a0fd..ded18aa5162b 100755
+--- a/drivers/amazon/net/ena/ena_regs_defs.h
++++ b/drivers/amazon/net/ena/ena_regs_defs.h
+@@ -53,6 +53,11 @@ enum ena_regs_reset_reason_types {
+ #define ENA_REGS_MMIO_RESP_HI_OFF                           0x64
+ #define ENA_REGS_RSS_IND_ENTRY_UPDATE_OFF                   0x68
+ 
++/* phc_registers offsets */
++
++/* 100 base */
++#define ENA_REGS_PHC_DB_OFF                                 0x100
++
+ /* version register */
+ #define ENA_REGS_VERSION_MINOR_VERSION_MASK                 0xff
+ #define ENA_REGS_VERSION_MAJOR_VERSION_SHIFT                8
+@@ -129,4 +134,7 @@ enum ena_regs_reset_reason_types {
+ #define ENA_REGS_RSS_IND_ENTRY_UPDATE_CQ_IDX_SHIFT          16
+ #define ENA_REGS_RSS_IND_ENTRY_UPDATE_CQ_IDX_MASK           0xffff0000
+ 
++/* phc_db_req_id register */
++#define ENA_REGS_PHC_DB_REQ_ID_MASK                         0xffff
++
+ #endif /* _ENA_REGS_H_ */
+diff --git a/drivers/amazon/net/ena/ena_sysfs.c b/drivers/amazon/net/ena/ena_sysfs.c
+index 0c3451b60a2f..98e1f7ecd0f0 100755
+--- a/drivers/amazon/net/ena/ena_sysfs.c
++++ b/drivers/amazon/net/ena/ena_sysfs.c
+@@ -19,26 +19,23 @@ static ssize_t ena_store_rx_copybreak(struct device *dev,
+ {
+ 	struct ena_adapter *adapter = dev_get_drvdata(dev);
+ 	unsigned long rx_copybreak;
+-	struct ena_ring *rx_ring;
+-	int err, i;
++	int rc;
+ 
+-	err = kstrtoul(buf, 10, &rx_copybreak);
+-	if (err < 0)
+-		return err;
+-
+-	if (rx_copybreak > min_t(u16, adapter->netdev->mtu, ENA_PAGE_SIZE))
+-		return -EINVAL;
++	rc = kstrtoul(buf, 10, &rx_copybreak);
++	if (rc < 0)
++		goto exit;
+ 
+ 	rtnl_lock();
+-	adapter->rx_copybreak = rx_copybreak;
+-
+-	for (i = 0; i < adapter->num_io_queues; i++) {
+-		rx_ring = &adapter->rx_ring[i];
+-		rx_ring->rx_copybreak = rx_copybreak;
+-	}
++	rc = ena_set_rx_copybreak(adapter, rx_copybreak);
++	if (rc)
++		goto unlock;
+ 	rtnl_unlock();
+ 
+ 	return len;
++unlock:
++	rtnl_unlock();
++exit:
++	return rc;
+ }
+ 
+ #define ENA_RX_COPYBREAK_STR_MAX_LEN 7
+@@ -55,7 +52,6 @@ static ssize_t ena_show_rx_copybreak(struct device *dev,
+ static DEVICE_ATTR(rx_copybreak, S_IRUGO | S_IWUSR, ena_show_rx_copybreak,
+ 		   ena_store_rx_copybreak);
+ 
+-
+ /******************************************************************************
+  *****************************************************************************/
+ int ena_sysfs_init(struct device *dev)
+diff --git a/drivers/amazon/net/ena/ena_xdp.c b/drivers/amazon/net/ena/ena_xdp.c
+index 9296be230fd3..4d8c1709598d 100644
+--- a/drivers/amazon/net/ena/ena_xdp.c
++++ b/drivers/amazon/net/ena/ena_xdp.c
+@@ -190,7 +190,8 @@ int ena_setup_and_create_all_xdp_queues(struct ena_adapter *adapter)
+ 	return 0;
+ 
+ create_err:
+-	ena_free_all_io_tx_resources(adapter);
++	ena_free_all_io_tx_resources_in_range(adapter, adapter->xdp_first_ring,
++					      adapter->xdp_num_queues);
+ setup_err:
+ 	return rc;
+ }
+@@ -806,10 +807,11 @@ static int ena_xdp_clean_rx_irq_zc(struct ena_ring *rx_ring,
+ 		xdp->data_end = xdp->data + ena_rx_ctx.ena_bufs[0].len;
+ 		xsk_buff_dma_sync_for_cpu(xdp, rx_ring->xsk_pool);
+ 
+-		/* Don't process several descriptors, not blocked by HW
+-		 * (regardless of MTU)
+-		 */
++		/* XDP multi-buffer packets not supported */
+ 		if (unlikely(ena_rx_ctx.descs > 1)) {
++			netdev_err_once(rx_ring->adapter->netdev,
++					"xdp: dropped multi-buffer packets. RX packets must be < %lu\n",
++					ENA_XDP_MAX_MTU);
+ 			ena_increase_stat(&rx_ring->rx_stats.xdp_drop, 1, &rx_ring->syncp);
+ 			xdp_verdict = ENA_XDP_DROP;
+ 			goto skip_xdp_prog;
+diff --git a/drivers/amazon/net/ena/ena_xdp.h b/drivers/amazon/net/ena/ena_xdp.h
+index b15d9cb0d25f..f6b60c0e5d7c 100644
+--- a/drivers/amazon/net/ena/ena_xdp.h
++++ b/drivers/amazon/net/ena/ena_xdp.h
+@@ -96,6 +96,11 @@ static inline enum ena_xdp_errors_t ena_xdp_allowed(struct ena_adapter *adapter)
+ 	return rc;
+ }
+ 
++static inline u64 ena_ring_xdp_drops_cnt(struct ena_ring *rx_ring)
++{
++	return rx_ring->rx_stats.xdp_drop;
++}
++
+ #ifdef ENA_AF_XDP_SUPPORT
+ static inline bool ena_is_zc_q_exist(struct ena_adapter *adapter)
+ {
+@@ -173,7 +178,7 @@ static inline int ena_xdp_execute(struct ena_ring *rx_ring, struct xdp_buff *xdp
+ 		verdict = ENA_XDP_PASS;
+ 		break;
+ 	default:
+-		bpf_warn_invalid_xdp_action(verdict);
++		bpf_warn_invalid_xdp_action(rx_ring->netdev, xdp_prog, verdict);
+ 		xdp_stat = &rx_ring->rx_stats.xdp_invalid;
+ 		verdict = ENA_XDP_DROP;
+ 	}
+@@ -191,6 +196,11 @@ static inline bool ena_xdp_present_ring(struct ena_ring *ring)
+ 	return false;
+ }
+ 
++static inline u64 ena_ring_xdp_drops_cnt(struct ena_ring *rx_ring)
++{
++	return 0;
++}
++
+ static inline int ena_xdp_register_rxq_info(struct ena_ring *rx_ring)
+ {
+ 	return 0;
+diff --git a/drivers/amazon/net/ena/kcompat.h b/drivers/amazon/net/ena/kcompat.h
+index 38af7b173de1..fd7e80d0347b 100644
+--- a/drivers/amazon/net/ena/kcompat.h
++++ b/drivers/amazon/net/ena/kcompat.h
+@@ -839,6 +839,10 @@ static inline int numa_mem_id(void)
+ #define fallthrough do {} while (0)  /* fallthrough */
+ #endif
+ 
++#ifndef NAPI_POLL_WEIGHT
++#define NAPI_POLL_WEIGHT 64
++#endif
++
+ #if LINUX_VERSION_CODE >= KERNEL_VERSION(5, 11, 0)
+ #define AF_XDP_BUSY_POLL_SUPPORTED
+ #endif
+@@ -921,4 +925,63 @@ static inline int netif_xmit_stopped(const struct netdev_queue *dev_queue)
+ #if LINUX_VERSION_CODE < KERNEL_VERSION(4, 10, 0)
+ #define NAPIF_STATE_SCHED BIT(NAPI_STATE_SCHED)
+ #endif
++
++#if LINUX_VERSION_CODE < KERNEL_VERSION(5, 17, 0)
++#define bpf_warn_invalid_xdp_action(netdev, xdp_prog, verdict) \
++	bpf_warn_invalid_xdp_action(verdict)
++#endif
++
++#if LINUX_VERSION_CODE >= KERNEL_VERSION(3, 18, 0)
++#define HAS_BPF_HEADER
++#endif
++
++#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 8, 0)) && \
++	!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 7))))
++static inline int ktime_compare(const ktime_t cmp1, const ktime_t cmp2)
++{
++	if (cmp1.tv64 < cmp2.tv64)
++		return -1;
++	if (cmp1.tv64 > cmp2.tv64)
++		return 1;
++	return 0;
++}
++#endif
++
++#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 16, 0)) && \
++	!(RHEL_RELEASE_CODE && \
++	(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 7)) && \
++	(RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7, 0)) && \
++	(RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(7, 1))))
++static inline bool ktime_after(const ktime_t cmp1, const ktime_t cmp2)
++{
++	return ktime_compare(cmp1, cmp2) > 0;
++}
++#endif
++
++#if IS_ENABLED(CONFIG_PTP_1588_CLOCK)
++
++#if defined(ENA_PHC_INCLUDE) && ((LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) || \
++	(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 4)))
++#define ENA_PHC_SUPPORT
++#endif /* ENA_PHC_SUPPORT */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0)) || \
++	(RHEL_RELEASE_CODE && RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 2))
++#define ENA_PHC_SUPPORT_GETTIME64
++#endif /* ENA_PHC_SUPPORT_GETTIME64 */
++
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 0, 0)) || \
++	(RHEL_RELEASE_CODE && \
++	(RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(7, 7)) && \
++	(RHEL_RELEASE_CODE != RHEL_RELEASE_VERSION(8, 0)))
++#define ENA_PHC_SUPPORT_GETTIME64_EXTENDED
++#endif /* ENA_PHC_SUPPORT_GETTIME64_EXTENDED */
++
++#if ((LINUX_VERSION_CODE < KERNEL_VERSION(3, 7, 0)) && \
++	!(RHEL_RELEASE_CODE && (RHEL_RELEASE_CODE >= RHEL_RELEASE_VERSION(6, 4))))
++#define ptp_clock_register(info, parent) ptp_clock_register(info)
++#endif
++
++#endif /* CONFIG_PTP_1588_CLOCK */
++
+ #endif /* _KCOMPAT_H_ */
+-- 
+2.32.0
+

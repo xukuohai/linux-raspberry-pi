@@ -1,0 +1,189 @@
+From b464a3b781f6e7f2154805d463c012b18c7c9a48 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:01:58 +0000
+Subject: Revert "mm/damon: Implement primitives for page granularity idleness
+ monitoring"
+
+This reverts commit 5be18b95758bcf76695f877bac82bd52f42fe9d6.
+---
+ include/linux/damon.h        | 27 --------------
+ include/trace/events/damon.h | 19 ----------
+ mm/damon/Kconfig             |  9 -----
+ mm/damon/Makefile            |  1 -
+ mm/damon/pgidle.c            | 68 ------------------------------------
+ 5 files changed, 124 deletions(-)
+ delete mode 100644 mm/damon/pgidle.c
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 930fb2e72ec1..bb97b0d2f874 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -389,31 +389,4 @@ void damon_pa_set_primitives(struct damon_ctx *ctx);
+ 
+ #endif	/* CONFIG_DAMON_PADDR */
+ 
+-#ifdef CONFIG_DAMON_PGIDLE
+-
+-/*
+- * struct damon_pfns_range - Represents a pfn range of [@start, @end).
+- * @start:	Start pfn of the range (inclusive).
+- * @end:	End pfn of the range (exclusive).
+- *
+- * In case of the page granularity idleness monitoring, an instance of this
+- * struct is pointed by &damon_ctx.arbitrary_target.
+- */
+-struct damon_pfns_range {
+-	unsigned long start;
+-	unsigned long end;
+-};
+-
+-bool damon_pgi_is_idle(unsigned long pfn, unsigned long *pg_size);
+-
+-/* Monitoring primitives for page granularity idleness monitoring */
+-
+-void damon_pgi_prepare_access_checks(struct damon_ctx *ctx);
+-unsigned int damon_pgi_check_accesses(struct damon_ctx *ctx);
+-bool damon_pgi_target_valid(void *t);
+-void damon_pgi_set_primitives(struct damon_ctx *ctx);
+-
+-#endif	/* CONFIG_DAMON_PGIDLE */
+-
+-
+ #endif	/* _DAMON_H */
+diff --git a/include/trace/events/damon.h b/include/trace/events/damon.h
+index f0c9f1d801cf..2f422f4f1fb9 100644
+--- a/include/trace/events/damon.h
++++ b/include/trace/events/damon.h
+@@ -37,25 +37,6 @@ TRACE_EVENT(damon_aggregated,
+ 			__entry->start, __entry->end, __entry->nr_accesses)
+ );
+ 
+-TRACE_EVENT(damon_pgi,
+-
+-	TP_PROTO(unsigned long pfn, bool accessed),
+-
+-	TP_ARGS(pfn, accessed),
+-
+-	TP_STRUCT__entry(
+-		__field(unsigned long, pfn)
+-		__field(bool, accessed)
+-	),
+-
+-	TP_fast_assign(
+-		__entry->pfn = pfn;
+-		__entry->accessed = accessed;
+-	),
+-
+-	TP_printk("pfn=%lu accessed=%u", __entry->pfn, __entry->accessed)
+-);
+-
+ #endif /* _TRACE_DAMON_H */
+ 
+ /* This part must be outside protection */
+diff --git a/mm/damon/Kconfig b/mm/damon/Kconfig
+index ffffe048a4d6..da44c307dd30 100644
+--- a/mm/damon/Kconfig
++++ b/mm/damon/Kconfig
+@@ -29,15 +29,6 @@ config DAMON_PADDR
+ 	  This builds the default data access monitoring primitives for DAMON
+ 	  that works for physical address spaces.
+ 
+-config DAMON_PGIDLE
+-	bool "Data access monitoring primitives for page granularity idleness"
+-	depends on DAMON && MMU
+-	select PAGE_EXTENSION if !64BIT
+-	select PAGE_IDLE_FLAG
+-	help
+-	  This builds the default data access monitoring primitives for DAMON
+-	  that works for page granularity idleness monitoring.
+-
+ config DAMON_DBGFS
+ 	bool "DAMON debugfs interface"
+ 	depends on DAMON_VADDR && DAMON_PADDR && DEBUG_FS
+diff --git a/mm/damon/Makefile b/mm/damon/Makefile
+index 017799e5670a..8d9b0df79702 100644
+--- a/mm/damon/Makefile
++++ b/mm/damon/Makefile
+@@ -3,5 +3,4 @@
+ obj-$(CONFIG_DAMON)		:= core.o
+ obj-$(CONFIG_DAMON_VADDR)	+= prmtv-common.o vaddr.o
+ obj-$(CONFIG_DAMON_PADDR)	+= prmtv-common.o paddr.o
+-obj-$(CONFIG_DAMON_PGIDLE)	+= prmtv-common.o pgidle.o
+ obj-$(CONFIG_DAMON_DBGFS)	+= dbgfs.o
+diff --git a/mm/damon/pgidle.c b/mm/damon/pgidle.c
+deleted file mode 100644
+index b892c270dc86..000000000000
+--- a/mm/damon/pgidle.c
++++ /dev/null
+@@ -1,68 +0,0 @@
+-// SPDX-License-Identifier: GPL-2.0
+-/*
+- * DAMON Primitives for Page Granularity Idleness Monitoring
+- *
+- * Author: SeongJae Park <sj@kernel.org>
+- */
+-
+-#define pr_fmt(fmt) "damon-pgi: " fmt
+-
+-#include <linux/rmap.h>
+-
+-#include "prmtv-common.h"
+-
+-#include <trace/events/damon.h>
+-
+-bool damon_pgi_is_idle(unsigned long pfn, unsigned long *pg_size)
+-{
+-	return damon_pa_young(PFN_PHYS(pfn), pg_size);
+-}
+-
+-/*
+- * This has no implementations for 'init()' and 'update()'.  Users should set
+- * the initial regions and update regions by themselves in the 'before_start'
+- * and 'after_aggregation' callbacks, respectively.  Or, they can implement and
+- * use their own version of the primitives.
+- */
+-
+-void damon_pgi_prepare_access_checks(struct damon_ctx *ctx)
+-{
+-	struct damon_pfns_range *target = ctx->arbitrary_target;
+-	unsigned long pfn;
+-
+-	for (pfn = target->start; pfn < target->end; pfn++)
+-		damon_pa_mkold(PFN_PHYS(pfn));
+-}
+-
+-unsigned int damon_pgi_check_accesses(struct damon_ctx *ctx)
+-{
+-	struct damon_pfns_range *target = ctx->arbitrary_target;
+-	unsigned long pfn;
+-	unsigned long pg_size = 0;
+-
+-	for (pfn = target->start; pfn < target->end; pfn++) {
+-		pg_size = 0;
+-		trace_damon_pgi(pfn, damon_pa_young(PFN_PHYS(pfn), &pg_size));
+-		if (pg_size > PAGE_SIZE)
+-			pfn += pg_size / PAGE_SIZE - 1;
+-	}
+-
+-	return 0;
+-}
+-
+-bool damon_pgi_target_valid(void *target)
+-{
+-	return true;
+-}
+-
+-void damon_pgi_set_primitives(struct damon_ctx *ctx)
+-{
+-	ctx->primitive.init = NULL;
+-	ctx->primitive.update = NULL;
+-	ctx->primitive.prepare_access_checks = damon_pgi_prepare_access_checks;
+-	ctx->primitive.check_accesses = damon_pgi_check_accesses;
+-	ctx->primitive.reset_aggregated = NULL;
+-	ctx->primitive.target_valid = damon_pgi_target_valid;
+-	ctx->primitive.cleanup = NULL;
+-	ctx->primitive.apply_scheme = NULL;
+-}
+-- 
+2.32.0
+

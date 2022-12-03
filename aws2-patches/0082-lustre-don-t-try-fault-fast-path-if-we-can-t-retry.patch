@@ -1,0 +1,50 @@
+From 44f20699d19b0c4ccc225dad7b170c2f6cdb722d Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Thu, 31 Dec 2020 20:56:28 +0000
+Subject: lustre: don't try fault fast path if we can't retry
+
+Under certain circumstances, the lustre fault handler
+can loop endlessly, see this commit in the lustre tree:
+
+bb50c62c6f ("LU-13182 llite: Avoid eternel retry loops with MAP_POPULATE")
+
+However, this commit isn't enough to avoid hangs while
+doing a kernel build on a lustre fs.
+
+Do something that is more clean for 5.10, that does work: use
+the fault_flag_allow_retry_first() function to see if the fast
+path should be taken. If either retries are not allowed, or
+this isn't the first retry, then don't take the fast path
+at all - the fast path should only be taken if we're prepared
+to deal with a retry.
+
+Of course, this still avoids the question as to why filemap_fault()
+keeps returning a retry. Upstream also has not addressed this
+question. This should be figured out upstream, we're mainly
+concerned with getting this working right now.
+
+A kernel compile shows that the slow path is only taken, as part
+of a retry, about 4 out of 100,000 faults.
+
+Signed-off-by: Fran van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/llite/llite_mmap.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+index 30cf21b77881..7807f45396c9 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+@@ -267,7 +267,8 @@ static vm_fault_t ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
+ 	if (IS_ERR(env))
+ 		RETURN(PTR_ERR(env));
+ 
+-	if (ll_sbi_has_fast_read(ll_i2sbi(file_inode(vma->vm_file)))) {
++	if (fault_flag_allow_retry_first(vmf->flags) &&
++	    ll_sbi_has_fast_read(ll_i2sbi(file_inode(vma->vm_file)))) {
+ 		/* do fast fault */
+ 		ll_cl_add(vma->vm_file, env, NULL, LCC_MMAP);
+ 		fault_ret = ll_filemap_fault(vma, vmf);
+-- 
+2.32.0
+

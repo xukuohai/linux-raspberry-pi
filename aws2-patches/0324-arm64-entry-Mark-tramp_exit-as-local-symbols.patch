@@ -1,0 +1,34 @@
+From 05c103ea84c0a7f3965de6b87814567eeeff508a Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Fri, 3 Apr 2020 13:44:00 +0100
+Subject: arm64: entry: Mark tramp_exit as local symbols
+
+Symbols tramp_exit_native and tramp_exit_compat are not used outside of
+entry.S. Hence, assign them local binding.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/entry.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index fd13c4444c5c..b902fc72c04b 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -933,11 +933,11 @@ SYM_CODE_START_NOALIGN(tramp_vectors)
+ 	generate_tramp_vector	kpti=1, bhb=BHB_MITIGATION_NONE
+ SYM_CODE_END(tramp_vectors)
+ 
+-SYM_CODE_START(tramp_exit_native)
++SYM_CODE_START_LOCAL(tramp_exit_native)
+ 	tramp_exit
+ SYM_CODE_END(tramp_exit_native)
+ 
+-SYM_CODE_START(tramp_exit_compat)
++SYM_CODE_START_LOCAL(tramp_exit_compat)
+ 	tramp_exit	32
+ SYM_CODE_END(tramp_exit_compat)
+ 
+-- 
+2.32.0
+

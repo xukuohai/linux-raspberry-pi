@@ -1,0 +1,42 @@
+From 41fe7348cf79c0a1f63cd34629fc1502dd83721e Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 7 Sep 2020 13:51:59 +0100
+Subject: arm64: Add intra-function call annotations
+
+Stack validation requires BL instructions to an address
+within the symbol containing the BL to be annotated as intra-function
+calls.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/crypto/crct10dif-ce-core.S | 1 +
+ arch/arm64/kernel/entry.S             | 1 +
+ 2 files changed, 2 insertions(+)
+
+diff --git a/arch/arm64/crypto/crct10dif-ce-core.S b/arch/arm64/crypto/crct10dif-ce-core.S
+index 111d9c9abddd..ec6f97180c74 100644
+--- a/arch/arm64/crypto/crct10dif-ce-core.S
++++ b/arch/arm64/crypto/crct10dif-ce-core.S
+@@ -207,6 +207,7 @@ SYM_FUNC_END(__pmull_p8_core)
+ 	pmull2		\rq\().8h, \ad\().16b, \bd\().16b	// D = A*B
+ 	.endif
+ 
++	ANNOTATE_INTRA_FUNCTION_CALL
+ 	bl		.L__pmull_p8_core\i
+ 
+ 	eor		\rq\().16b, \rq\().16b, t4.16b
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index ff1b58d22366..b8fcdb8d4096 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -855,6 +855,7 @@ alternative_else_nop_endif
+ 	 * entry onto the return stack and using a RET instruction to
+ 	 * enter the full-fat kernel vectors.
+ 	 */
++	ANNOTATE_INTRA_FUNCTION_CALL
+ 	bl	2f
+ 	b	.
+ 2:
+-- 
+2.32.0
+

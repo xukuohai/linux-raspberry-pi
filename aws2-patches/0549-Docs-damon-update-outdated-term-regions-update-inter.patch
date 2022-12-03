@@ -1,0 +1,75 @@
+From 9ec00891935acc655d00b17428ea98716dac1b00 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 22 Mar 2022 14:49:18 -0700
+Subject: Docs/damon: update outdated term 'regions update interval'
+
+Before DAMON is merged in the mainline, the concept of 'regions update
+interval' has generalized to be used as the time interval for update of
+any monitoring operations related data structure, but the document has not
+updated properly.  This commit updates the document for better
+consistency.
+
+Link: https://lkml.kernel.org/r/20220222170100.17068-4-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Cc: Jonathan Corbet <corbet@lwn.net>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ Documentation/admin-guide/mm/damon/usage.rst |  6 +++---
+ Documentation/vm/damon/design.rst            | 12 +++++++-----
+ 2 files changed, 10 insertions(+), 8 deletions(-)
+
+diff --git a/Documentation/admin-guide/mm/damon/usage.rst b/Documentation/admin-guide/mm/damon/usage.rst
+index 1e06435b8ff6..b6ec650873b2 100644
+--- a/Documentation/admin-guide/mm/damon/usage.rst
++++ b/Documentation/admin-guide/mm/damon/usage.rst
+@@ -47,7 +47,7 @@ Attributes
+ ----------
+ 
+ Users can get and set the ``sampling interval``, ``aggregation interval``,
+-``regions update interval``, and min/max number of monitoring target regions by
++``update interval``, and min/max number of monitoring target regions by
+ reading from and writing to the ``attrs`` file.  To know about the monitoring
+ attributes in detail, please refer to the :doc:`/vm/damon/design`.  For
+ example, below commands set those values to 5 ms, 100 ms, 1,000 ms, 10 and
+@@ -128,8 +128,8 @@ ranges, ``20-40`` and ``50-100`` as that of pid 4242, which is the second one
+ 
+ Note that this sets the initial monitoring target regions only.  In case of
+ virtual memory monitoring, DAMON will automatically updates the boundary of the
+-regions after one ``regions update interval``.  Therefore, users should set the
+-``regions update interval`` large enough in this case, if they don't want the
++regions after one ``update interval``.  Therefore, users should set the
++``update interval`` large enough in this case, if they don't want the
+ update.
+ 
+ 
+diff --git a/Documentation/vm/damon/design.rst b/Documentation/vm/damon/design.rst
+index 210f0f50efd8..60b2c22d4e10 100644
+--- a/Documentation/vm/damon/design.rst
++++ b/Documentation/vm/damon/design.rst
+@@ -94,8 +94,8 @@ Address Space Independent Core Mechanisms
+ 
+ Below four sections describe each of the DAMON core mechanisms and the five
+ monitoring attributes, ``sampling interval``, ``aggregation interval``,
+-``regions update interval``, ``minimum number of regions``, and ``maximum
+-number of regions``.
++``update interval``, ``minimum number of regions``, and ``maximum number of
++regions``.
+ 
+ 
+ Access Frequency Monitoring
+@@ -168,6 +168,8 @@ The monitoring target address range could dynamically changed.  For example,
+ virtual memory could be dynamically mapped and unmapped.  Physical memory could
+ be hot-plugged.
+ 
+-As the changes could be quite frequent in some cases, DAMON checks the dynamic
+-memory mapping changes and applies it to the abstracted target area only for
+-each of a user-specified time interval (``regions update interval``).
++As the changes could be quite frequent in some cases, DAMON allows the
++monitoring operations to check dynamic changes including memory mapping changes
++and applies it to monitoring operations-related data structures such as the
++abstracted monitoring target memory area only for each of a user-specified time
++interval (``update interval``).
+-- 
+2.32.0
+

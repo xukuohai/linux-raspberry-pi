@@ -1,0 +1,51 @@
+From 1fdaf98a3f375261175645a470ac10f9cc552a34 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:54 -0700
+Subject: mm/damon/core: finish kdamond as soon as any callback returns an
+ error
+
+When 'after_sampling()' or 'after_aggregation()' DAMON callbacks return an
+error, kdamond continues the remaining loop once.  It makes no much sense
+to run the remaining part while something wrong already happened.  The
+context might be corrupted or having invalid data.  This commit therefore
+makes kdamond skips the remaining works and immediately finish in the
+cases.
+
+Link: https://lkml.kernel.org/r/20220429160606.127307-3-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/core.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 44fe7e452a1e..b6daaff37bec 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -1089,8 +1089,10 @@ static int kdamond_fn(void *data)
+ 		if (ctx->ops.prepare_access_checks)
+ 			ctx->ops.prepare_access_checks(ctx);
+ 		if (ctx->callback.after_sampling &&
+-				ctx->callback.after_sampling(ctx))
++				ctx->callback.after_sampling(ctx)) {
+ 			done = true;
++			continue;
++		}
+ 
+ 		kdamond_usleep(ctx->sample_interval);
+ 
+@@ -1102,8 +1104,10 @@ static int kdamond_fn(void *data)
+ 					max_nr_accesses / 10,
+ 					sz_limit);
+ 			if (ctx->callback.after_aggregation &&
+-					ctx->callback.after_aggregation(ctx))
++					ctx->callback.after_aggregation(ctx)) {
+ 				done = true;
++				continue;
++			}
+ 			kdamond_apply_schemes(ctx);
+ 			kdamond_reset_aggregated(ctx);
+ 			kdamond_split_regions(ctx);
+-- 
+2.32.0
+

@@ -1,0 +1,106 @@
+From c6f5d7b60d81e633c1d9de9cd2470d15d665b4c6 Mon Sep 17 00:00:00 2001
+From: Anchal Agarwal <anchalag@amazon.com>
+Date: Mon, 11 Oct 2021 18:13:56 +0000
+Subject: Revert "mm/damon/vaddr: Support DAMON-based Operation Schemes"
+
+This reverts commit 2271d525421488de82087203b1858b0a3519d3fe.
+---
+ include/linux/damon.h |  2 --
+ mm/damon/vaddr.c      | 56 -------------------------------------------
+ 2 files changed, 58 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index ab962018ac9b..b70d893d073e 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -334,8 +334,6 @@ void damon_va_prepare_access_checks(struct damon_ctx *ctx);
+ unsigned int damon_va_check_accesses(struct damon_ctx *ctx);
+ bool damon_va_target_valid(void *t);
+ void damon_va_cleanup(struct damon_ctx *ctx);
+-int damon_va_apply_scheme(struct damon_ctx *context, struct damon_target *t,
+-		struct damon_region *r, struct damos *scheme);
+ void damon_va_set_primitives(struct damon_ctx *ctx);
+ 
+ #endif	/* CONFIG_DAMON_VADDR */
+diff --git a/mm/damon/vaddr.c b/mm/damon/vaddr.c
+index a3ae1628a997..e2bf3db31c2c 100644
+--- a/mm/damon/vaddr.c
++++ b/mm/damon/vaddr.c
+@@ -7,7 +7,6 @@
+ 
+ #define pr_fmt(fmt) "damon-va: " fmt
+ 
+-#include <asm-generic/mman-common.h>
+ #include <linux/damon.h>
+ #include <linux/mm.h>
+ #include <linux/mmu_notifier.h>
+@@ -568,60 +567,6 @@ void damon_va_cleanup(struct damon_ctx *ctx)
+ 	}
+ }
+ 
+-#ifndef CONFIG_ADVISE_SYSCALLS
+-static int damos_madvise(struct damon_target *target, struct damon_region *r,
+-			int behavior)
+-{
+-	return -EINVAL;
+-}
+-#else
+-static int damos_madvise(struct damon_target *target, struct damon_region *r,
+-			int behavior)
+-{
+-	struct mm_struct *mm;
+-	int ret = -ENOMEM;
+-
+-	mm = damon_get_mm(target);
+-	if (!mm)
+-		goto out;
+-
+-	ret = do_madvise(mm, PAGE_ALIGN(r->ar.start),
+-			PAGE_ALIGN(r->ar.end - r->ar.start), behavior);
+-	mmput(mm);
+-out:
+-	return ret;
+-}
+-#endif	/* CONFIG_ADVISE_SYSCALLS */
+-
+-int damon_va_apply_scheme(struct damon_ctx *ctx, struct damon_target *t,
+-		struct damon_region *r, struct damos *scheme)
+-{
+-	int madv_action;
+-
+-	switch (scheme->action) {
+-	case DAMOS_WILLNEED:
+-		madv_action = MADV_WILLNEED;
+-		break;
+-	case DAMOS_COLD:
+-		madv_action = MADV_COLD;
+-		break;
+-	case DAMOS_PAGEOUT:
+-		madv_action = MADV_PAGEOUT;
+-		break;
+-	case DAMOS_HUGEPAGE:
+-		madv_action = MADV_HUGEPAGE;
+-		break;
+-	case DAMOS_NOHUGEPAGE:
+-		madv_action = MADV_NOHUGEPAGE;
+-		break;
+-	default:
+-		pr_warn("Wrong action %d\n", scheme->action);
+-		return -EINVAL;
+-	}
+-
+-	return damos_madvise(t, r, madv_action);
+-}
+-
+ void damon_va_set_primitives(struct damon_ctx *ctx)
+ {
+ 	ctx->primitive.init = damon_va_init;
+@@ -631,5 +576,4 @@ void damon_va_set_primitives(struct damon_ctx *ctx)
+ 	ctx->primitive.reset_aggregated = NULL;
+ 	ctx->primitive.target_valid = damon_va_target_valid;
+ 	ctx->primitive.cleanup = damon_va_cleanup;
+-	ctx->primitive.apply_scheme = damon_va_apply_scheme;
+ }
+-- 
+2.32.0
+

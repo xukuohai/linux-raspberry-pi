@@ -1,0 +1,37 @@
+From c168514b6f9ad86a32b90670d2dd10548c97c8e4 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Fri, 15 Jan 2021 17:39:16 +0100
+Subject: arm64: Skip validation of qcom_link_stack_sanitization
+
+This workaround code is more akin to an ancient incantation than
+sensible code. And since the function does not call another function
+than itself, unwinding from instructions in it should be reliable.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/proton-pack.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/kernel/proton-pack.c b/arch/arm64/kernel/proton-pack.c
+index 6ae53d8cd576..ae172e30abfe 100644
+--- a/arch/arm64/kernel/proton-pack.c
++++ b/arch/arm64/kernel/proton-pack.c
+@@ -22,6 +22,7 @@
+ #include <linux/cpu.h>
+ #include <linux/device.h>
+ #include <linux/nospec.h>
++#include <linux/objtool.h>
+ #include <linux/prctl.h>
+ #include <linux/sched/task_stack.h>
+ 
+@@ -300,6 +301,7 @@ static void qcom_link_stack_sanitisation(void)
+ 		     "mov	x30, %0		\n"
+ 		     : "=&r" (tmp));
+ }
++STACK_FRAME_NON_STANDARD(qcom_link_stack_sanitisation);
+ 
+ static bp_hardening_cb_t spectre_v2_get_sw_mitigation_cb(void)
+ {
+-- 
+2.32.0
+

@@ -1,0 +1,30 @@
+From 19aee7534b691bfbf90c27ee078dccfec607a39e Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 31 Aug 2020 10:19:03 +0100
+Subject: arm64: sleep: Properly set frame pointer before call
+
+In __cpu_suspend_enter, the FP and LR are properly saved on the stack to
+form a stack frame, but the frame pointer is not set afterwards.
+
+Have the frame pointer point to the new frame.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/sleep.S | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/kernel/sleep.S b/arch/arm64/kernel/sleep.S
+index ba40d57757d6..a33701fb4c89 100644
+--- a/arch/arm64/kernel/sleep.S
++++ b/arch/arm64/kernel/sleep.S
+@@ -91,6 +91,7 @@ SYM_FUNC_START(__cpu_suspend_enter)
+ 	str	x0, [x1]
+ 	add	x0, x0, #SLEEP_STACK_DATA_SYSTEM_REGS
+ 	stp	x29, lr, [sp, #-16]!
++	mov	x29, sp
+ 	bl	cpu_do_suspend
+ 	ldp	x29, lr, [sp], #16
+ 	mov	x0, #1
+-- 
+2.32.0
+

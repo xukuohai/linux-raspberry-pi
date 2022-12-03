@@ -1,0 +1,26 @@
+From ebb7d80aa310300bc53647b9344d37d29654c847 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:22 +0000
+Subject: Revert "mm/damon: grammar s/works/work/"
+
+This reverts commit adb3d0ea270faad35deee0eeae55a3ad3b8093df.
+---
+ mm/damon/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/Kconfig b/mm/damon/Kconfig
+index 1f02002bbab7..c8e3dba6fb4c 100644
+--- a/mm/damon/Kconfig
++++ b/mm/damon/Kconfig
+@@ -18,7 +18,7 @@ config DAMON_VADDR
+ 	select PAGE_IDLE_FLAG
+ 	help
+ 	  This builds the default data access monitoring primitives for DAMON
+-	  that work for virtual address spaces.
++	  that works for virtual address spaces.
+ 
+ config DAMON_DBGFS
+ 	bool "DAMON debugfs interface"
+-- 
+2.32.0
+

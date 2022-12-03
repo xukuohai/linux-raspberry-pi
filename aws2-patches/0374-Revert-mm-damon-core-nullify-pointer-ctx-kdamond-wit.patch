@@ -1,0 +1,26 @@
+From 261a7c118488ee541074d867d05783f6dd4b53da Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:16 +0000
+Subject: Revert "mm/damon/core: nullify pointer ctx->kdamond with a NULL"
+
+This reverts commit e2865e072b4eafc5bc0b9e04f0fc871b9e9d1029.
+---
+ mm/damon/core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 2bc20e78b961..c3bea54e78b0 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -309,7 +309,7 @@ static int __damon_start(struct damon_ctx *ctx)
+ 				nr_running_ctxs);
+ 		if (IS_ERR(ctx->kdamond)) {
+ 			err = PTR_ERR(ctx->kdamond);
+-			ctx->kdamond = NULL;
++			ctx->kdamond = 0;
+ 		}
+ 	}
+ 	mutex_unlock(&ctx->kdamond_lock);
+-- 
+2.32.0
+

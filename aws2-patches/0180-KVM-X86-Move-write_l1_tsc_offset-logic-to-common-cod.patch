@@ -1,0 +1,167 @@
+From 546371be161d992f370a069e2fce14ec28176603 Mon Sep 17 00:00:00 2001
+From: Ilias Stamatis <ilstam@amazon.com>
+Date: Wed, 26 May 2021 19:44:15 +0100
+Subject: KVM: X86: Move write_l1_tsc_offset() logic to common code and rename
+ it
+
+The write_l1_tsc_offset() callback has a misleading name. It does not
+set L1's TSC offset, it rather updates the current TSC offset which
+might be different if a nested guest is executing. Additionally, both
+the vmx and svm implementations use the same logic for calculating the
+current TSC before writing it to hardware.
+
+Rename the function and move the common logic to the caller. The vmx/svm
+specific code now merely sets the given offset to the corresponding
+hardware structure.
+
+Note: Backported to 5.10
+
+Signed-off-by: Ilias Stamatis <ilstam@amazon.com>
+Reviewed-by: Maxim Levitsky <mlevitsk@redhat.com>
+Message-Id: <20210526184418.28881-9-ilstam@amazon.com>
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+---
+ arch/x86/include/asm/kvm_host.h |  3 +--
+ arch/x86/kvm/svm/svm.c          | 21 ++++-----------------
+ arch/x86/kvm/vmx/vmx.c          | 23 +++--------------------
+ arch/x86/kvm/x86.c              | 24 +++++++++++++++++++++---
+ 4 files changed, 29 insertions(+), 42 deletions(-)
+
+diff --git a/arch/x86/include/asm/kvm_host.h b/arch/x86/include/asm/kvm_host.h
+index 12b75c1de2f7..318b2c8c63bc 100644
+--- a/arch/x86/include/asm/kvm_host.h
++++ b/arch/x86/include/asm/kvm_host.h
+@@ -1195,8 +1195,7 @@ struct kvm_x86_ops {
+ 
+ 	u64 (*get_l2_tsc_offset)(struct kvm_vcpu *vcpu);
+ 	u64 (*get_l2_tsc_multiplier)(struct kvm_vcpu *vcpu);
+-	/* Returns actual tsc_offset set in active VMCS */
+-	u64 (*write_l1_tsc_offset)(struct kvm_vcpu *vcpu, u64 offset);
++	void (*write_tsc_offset)(struct kvm_vcpu *vcpu, u64 offset);
+ 
+ 	/*
+ 	 * Retrieve somewhat arbitrary exit information.  Intended to be used
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index 8459c5f48248..a2dcee1f4885 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -1079,26 +1079,13 @@ static u64 svm_get_l2_tsc_multiplier(struct kvm_vcpu *vcpu)
+ 	return kvm_default_tsc_scaling_ratio;
+ }
+ 
+-static u64 svm_write_l1_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
++static void svm_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
+ {
+ 	struct vcpu_svm *svm = to_svm(vcpu);
+-	u64 g_tsc_offset = 0;
+-
+-	if (is_guest_mode(vcpu)) {
+-		/* Write L1's TSC offset.  */
+-		g_tsc_offset = svm->vmcb->control.tsc_offset -
+-			       svm->nested.hsave->control.tsc_offset;
+-		svm->nested.hsave->control.tsc_offset = offset;
+-	}
+-
+-	trace_kvm_write_tsc_offset(vcpu->vcpu_id,
+-				   svm->vmcb->control.tsc_offset - g_tsc_offset,
+-				   offset);
+-
+-	svm->vmcb->control.tsc_offset = offset + g_tsc_offset;
+ 
++	svm->nested.hsave->control.tsc_offset = vcpu->arch.l1_tsc_offset;
++	svm->vmcb->control.tsc_offset = offset;
+ 	vmcb_mark_dirty(svm->vmcb, VMCB_INTERCEPTS);
+-	return svm->vmcb->control.tsc_offset;
+ }
+ 
+ static void svm_check_invpcid(struct vcpu_svm *svm)
+@@ -4312,7 +4299,7 @@ static struct kvm_x86_ops svm_x86_ops __initdata = {
+ 
+ 	.get_l2_tsc_offset = svm_get_l2_tsc_offset,
+ 	.get_l2_tsc_multiplier = svm_get_l2_tsc_multiplier,
+-	.write_l1_tsc_offset = svm_write_l1_tsc_offset,
++	.write_tsc_offset = svm_write_tsc_offset,
+ 
+ 	.load_mmu_pgd = svm_load_mmu_pgd,
+ 
+diff --git a/arch/x86/kvm/vmx/vmx.c b/arch/x86/kvm/vmx/vmx.c
+index 12526a874b1f..597462ff3af7 100644
+--- a/arch/x86/kvm/vmx/vmx.c
++++ b/arch/x86/kvm/vmx/vmx.c
+@@ -1831,26 +1831,9 @@ u64 vmx_get_l2_tsc_multiplier(struct kvm_vcpu *vcpu)
+ 	return kvm_default_tsc_scaling_ratio;
+ }
+ 
+-static u64 vmx_write_l1_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
++static void vmx_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
+ {
+-	struct vmcs12 *vmcs12 = get_vmcs12(vcpu);
+-	u64 g_tsc_offset = 0;
+-
+-	/*
+-	 * We're here if L1 chose not to trap WRMSR to TSC. According
+-	 * to the spec, this should set L1's TSC; The offset that L1
+-	 * set for L2 remains unchanged, and still needs to be added
+-	 * to the newly set TSC to get L2's TSC.
+-	 */
+-	if (is_guest_mode(vcpu) &&
+-	    (vmcs12->cpu_based_vm_exec_control & CPU_BASED_USE_TSC_OFFSETTING))
+-		g_tsc_offset = vmcs12->tsc_offset;
+-
+-	trace_kvm_write_tsc_offset(vcpu->vcpu_id,
+-				   vcpu->arch.tsc_offset - g_tsc_offset,
+-				   offset);
+-	vmcs_write64(TSC_OFFSET, offset + g_tsc_offset);
+-	return offset + g_tsc_offset;
++	vmcs_write64(TSC_OFFSET, offset);
+ }
+ 
+ /*
+@@ -7834,7 +7817,7 @@ static struct kvm_x86_ops vmx_x86_ops __initdata = {
+ 
+ 	.get_l2_tsc_offset = vmx_get_l2_tsc_offset,
+ 	.get_l2_tsc_multiplier = vmx_get_l2_tsc_multiplier,
+-	.write_l1_tsc_offset = vmx_write_l1_tsc_offset,
++	.write_tsc_offset = vmx_write_tsc_offset,
+ 
+ 	.load_mmu_pgd = vmx_load_mmu_pgd,
+ 
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 737197f87b46..bbc315dc2111 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -2277,10 +2277,28 @@ u64 kvm_calc_nested_tsc_multiplier(u64 l1_multiplier, u64 l2_multiplier)
+ }
+ EXPORT_SYMBOL_GPL(kvm_calc_nested_tsc_multiplier);
+ 
+-static void kvm_vcpu_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
++static void kvm_vcpu_write_tsc_offset(struct kvm_vcpu *vcpu, u64 l1_offset)
+ {
+-	vcpu->arch.l1_tsc_offset = offset;
+-	vcpu->arch.tsc_offset = kvm_x86_ops.write_l1_tsc_offset(vcpu, offset);
++	trace_kvm_write_tsc_offset(vcpu->vcpu_id,
++				   vcpu->arch.l1_tsc_offset,
++				   l1_offset);
++
++	vcpu->arch.l1_tsc_offset = l1_offset;
++
++	/*
++	 * If we are here because L1 chose not to trap WRMSR to TSC then
++	 * according to the spec this should set L1's TSC (as opposed to
++	 * setting L1's offset for L2).
++	 */
++	if (is_guest_mode(vcpu))
++		vcpu->arch.tsc_offset = kvm_calc_nested_tsc_offset(
++			l1_offset,
++			kvm_x86_ops.get_l2_tsc_offset(vcpu),
++			kvm_x86_ops.get_l2_tsc_multiplier(vcpu));
++	else
++		vcpu->arch.tsc_offset = l1_offset;
++
++	kvm_x86_ops.write_tsc_offset(vcpu, vcpu->arch.tsc_offset);
+ }
+ 
+ static inline bool kvm_check_tsc_unstable(void)
+-- 
+2.32.0
+

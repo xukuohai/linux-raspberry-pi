@@ -1,0 +1,38 @@
+From bc90a869bd1aaefbdc31486cba07507e28d63553 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Tue, 13 Sep 2022 21:28:28 -0700
+Subject: DOWNSTREAM ONLY: Revert "Makefile: link with -z noexecstack
+ --no-warn-rwx-segments"
+
+This reverts commit 8f4f2c9b98e40c699329680f9ca4f7c3a7f949ea.
+
+This causes arm64 debug builds to fail with:
+*** ERROR: No build ID note found in /builddir/build/BUILDROOT/kernel-5.15.63-32.131.amzn2.aarch64/usr/lib/debug/lib/modules/5.15.63-32.131.amzn2.aarch64/vmlinux
+
+This is due to the notes section which contains the build id being
+missing from the linux elf.
+
+Revert this commit until this can be remedied.
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+---
+ Makefile | 3 ---
+ 1 file changed, 3 deletions(-)
+
+diff --git a/Makefile b/Makefile
+index b824bdb0457c..91d407342a8a 100644
+--- a/Makefile
++++ b/Makefile
+@@ -983,9 +983,6 @@ KBUILD_CFLAGS   += $(KCFLAGS)
+ KBUILD_LDFLAGS_MODULE += --build-id=sha1
+ LDFLAGS_vmlinux += --build-id=sha1
+ 
+-KBUILD_LDFLAGS	+= -z noexecstack
+-KBUILD_LDFLAGS	+= $(call ld-option,--no-warn-rwx-segments)
+-
+ ifeq ($(CONFIG_STRIP_ASM_SYMS),y)
+ LDFLAGS_vmlinux	+= $(call ld-option, -X,)
+ endif
+-- 
+2.32.0
+

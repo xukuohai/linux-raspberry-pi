@@ -1,0 +1,123 @@
+From 483f19ff0b3582e9a1c7d9bb9d3e4f19a488e08b Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 22 Mar 2022 14:49:07 -0700
+Subject: mm/damon/paddr,vaddr: remove
+ damon_{p,v}a_{target_valid,set_operations}()
+
+Because DAMON debugfs interface and DAMON-based proactive reclaim are now
+using monitoring operations via registration mechanism,
+damon_{p,v}a_{target_valid,set_operations}() functions have no user.  This
+commit clean them up.
+
+Link: https://lkml.kernel.org/r/20220215184603.1479-9-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Cc: David Rientjes <rientjes@google.com>
+Cc: Xin Hao <xhao@linux.alibaba.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ include/linux/damon.h | 10 ----------
+ mm/damon/paddr.c      | 20 +-------------------
+ mm/damon/vaddr.c      | 15 +--------------
+ 3 files changed, 2 insertions(+), 43 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 076da277b249..49c4a11ecf20 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -513,14 +513,4 @@ int damon_stop(struct damon_ctx **ctxs, int nr_ctxs);
+ 
+ #endif	/* CONFIG_DAMON */
+ 
+-#ifdef CONFIG_DAMON_VADDR
+-bool damon_va_target_valid(void *t);
+-void damon_va_set_operations(struct damon_ctx *ctx);
+-#endif	/* CONFIG_DAMON_VADDR */
+-
+-#ifdef CONFIG_DAMON_PADDR
+-bool damon_pa_target_valid(void *t);
+-void damon_pa_set_operations(struct damon_ctx *ctx);
+-#endif	/* CONFIG_DAMON_PADDR */
+-
+ #endif	/* _DAMON_H */
+diff --git a/mm/damon/paddr.c b/mm/damon/paddr.c
+index 416038bc5363..ffcd6047fea8 100644
+--- a/mm/damon/paddr.c
++++ b/mm/damon/paddr.c
+@@ -208,11 +208,6 @@ static unsigned int damon_pa_check_accesses(struct damon_ctx *ctx)
+ 	return max_nr_accesses;
+ }
+ 
+-bool damon_pa_target_valid(void *t)
+-{
+-	return true;
+-}
+-
+ static unsigned long damon_pa_apply_scheme(struct damon_ctx *ctx,
+ 		struct damon_target *t, struct damon_region *r,
+ 		struct damos *scheme)
+@@ -261,19 +256,6 @@ static int damon_pa_scheme_score(struct damon_ctx *context,
+ 	return DAMOS_MAX_SCORE;
+ }
+ 
+-void damon_pa_set_operations(struct damon_ctx *ctx)
+-{
+-	ctx->ops.init = NULL;
+-	ctx->ops.update = NULL;
+-	ctx->ops.prepare_access_checks = damon_pa_prepare_access_checks;
+-	ctx->ops.check_accesses = damon_pa_check_accesses;
+-	ctx->ops.reset_aggregated = NULL;
+-	ctx->ops.target_valid = damon_pa_target_valid;
+-	ctx->ops.cleanup = NULL;
+-	ctx->ops.apply_scheme = damon_pa_apply_scheme;
+-	ctx->ops.get_scheme_score = damon_pa_scheme_score;
+-}
+-
+ static int __init damon_pa_initcall(void)
+ {
+ 	struct damon_operations ops = {
+@@ -283,7 +265,7 @@ static int __init damon_pa_initcall(void)
+ 		.prepare_access_checks = damon_pa_prepare_access_checks,
+ 		.check_accesses = damon_pa_check_accesses,
+ 		.reset_aggregated = NULL,
+-		.target_valid = damon_pa_target_valid,
++		.target_valid = NULL,
+ 		.cleanup = NULL,
+ 		.apply_scheme = damon_pa_apply_scheme,
+ 		.get_scheme_score = damon_pa_scheme_score,
+diff --git a/mm/damon/vaddr.c b/mm/damon/vaddr.c
+index 87475ba37bec..b2ec0aa1ff45 100644
+--- a/mm/damon/vaddr.c
++++ b/mm/damon/vaddr.c
+@@ -653,7 +653,7 @@ static unsigned int damon_va_check_accesses(struct damon_ctx *ctx)
+  * Functions for the target validity check and cleanup
+  */
+ 
+-bool damon_va_target_valid(void *target)
++static bool damon_va_target_valid(void *target)
+ {
+ 	struct damon_target *t = target;
+ 	struct task_struct *task;
+@@ -739,19 +739,6 @@ static int damon_va_scheme_score(struct damon_ctx *context,
+ 	return DAMOS_MAX_SCORE;
+ }
+ 
+-void damon_va_set_operations(struct damon_ctx *ctx)
+-{
+-	ctx->ops.init = damon_va_init;
+-	ctx->ops.update = damon_va_update;
+-	ctx->ops.prepare_access_checks = damon_va_prepare_access_checks;
+-	ctx->ops.check_accesses = damon_va_check_accesses;
+-	ctx->ops.reset_aggregated = NULL;
+-	ctx->ops.target_valid = damon_va_target_valid;
+-	ctx->ops.cleanup = NULL;
+-	ctx->ops.apply_scheme = damon_va_apply_scheme;
+-	ctx->ops.get_scheme_score = damon_va_scheme_score;
+-}
+-
+ static int __init damon_va_initcall(void)
+ {
+ 	struct damon_operations ops = {
+-- 
+2.32.0
+

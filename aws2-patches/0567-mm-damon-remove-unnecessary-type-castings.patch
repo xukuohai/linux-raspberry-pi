@@ -1,0 +1,32 @@
+From 454217edf0155abd15482b005f9b0314eb6c88c5 Mon Sep 17 00:00:00 2001
+From: Yu Zhe <yuzhe@nfschina.com>
+Date: Fri, 29 Apr 2022 14:37:00 -0700
+Subject: mm/damon: remove unnecessary type castings
+
+Remove unnecessary void* type castings.
+
+Link: https://lkml.kernel.org/r/20220421153056.8474-1-yuzhe@nfschina.com
+Signed-off-by: Yu Zhe <yuzhe@nfschina.com>
+Cc: SeongJae Park <sj@kernel.org>
+Cc: liqiong <liqiong@nfschina.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 5ce8d7c867f0..5fe42e47c57b 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -1042,7 +1042,7 @@ static int kdamond_wait_activation(struct damon_ctx *ctx)
+  */
+ static int kdamond_fn(void *data)
+ {
+-	struct damon_ctx *ctx = (struct damon_ctx *)data;
++	struct damon_ctx *ctx = data;
+ 	struct damon_target *t;
+ 	struct damon_region *r, *next;
+ 	unsigned int max_nr_accesses = 0;
+-- 
+2.32.0
+

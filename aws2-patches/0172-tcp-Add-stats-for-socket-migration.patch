@@ -1,0 +1,199 @@
+From 62b198cd5931348de02855ff7e66d117633daace Mon Sep 17 00:00:00 2001
+From: Kuniyuki Iwashima <kuniyu@amazon.co.jp>
+Date: Wed, 23 Jun 2021 08:35:29 +0900
+Subject: tcp: Add stats for socket migration.
+
+This commit adds two stats for the socket migration feature to evaluate the
+effectiveness: LINUX_MIB_TCPMIGRATEREQ(SUCCESS|FAILURE).
+
+If the migration fails because of the own_req race in receiving ACK and
+sending SYN+ACK paths, we do not increment the failure stat. Then another
+CPU is responsible for the req.
+
+Link: https://lore.kernel.org/bpf/CAK6E8=cgFKuGecTzSCSQ8z3YJ_163C0uwO9yRvfDSE7vOe9mJA@mail.gmail.com/
+Suggested-by: Yuchung Cheng <ycheng@google.com>
+Signed-off-by: Kuniyuki Iwashima <kuniyu@amazon.co.jp>
+Acked-by: Yuchung Cheng <ycheng@google.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 55d444b310c64b084dcc62ba3e4dc3862269fb96)
+---
+ include/uapi/linux/snmp.h       |  2 ++
+ net/core/sock_reuseport.c       | 15 +++++++++++----
+ net/ipv4/inet_connection_sock.c | 15 +++++++++++++--
+ net/ipv4/proc.c                 |  2 ++
+ net/ipv4/tcp_minisocks.c        |  3 +++
+ 5 files changed, 31 insertions(+), 6 deletions(-)
+
+diff --git a/include/uapi/linux/snmp.h b/include/uapi/linux/snmp.h
+index f84e7bcad6de..4a16fbe24759 100644
+--- a/include/uapi/linux/snmp.h
++++ b/include/uapi/linux/snmp.h
+@@ -289,6 +289,8 @@ enum
+ 	LINUX_MIB_TCPDUPLICATEDATAREHASH,	/* TCPDuplicateDataRehash */
+ 	LINUX_MIB_TCPDSACKRECVSEGS,		/* TCPDSACKRecvSegs */
+ 	LINUX_MIB_TCPDSACKIGNOREDDUBIOUS,	/* TCPDSACKIgnoredDubious */
++	LINUX_MIB_TCPMIGRATEREQSUCCESS,		/* TCPMigrateReqSuccess */
++	LINUX_MIB_TCPMIGRATEREQFAILURE,		/* TCPMigrateReqFailure */
+ 	__LINUX_MIB_MAX
+ };
+ 
+diff --git a/net/core/sock_reuseport.c b/net/core/sock_reuseport.c
+index de5ee3ae86d5..3f00a28fe762 100644
+--- a/net/core/sock_reuseport.c
++++ b/net/core/sock_reuseport.c
+@@ -6,6 +6,7 @@
+  * selecting the socket index from the array of available sockets.
+  */
+ 
++#include <net/ip.h>
+ #include <net/sock_reuseport.h>
+ #include <linux/bpf.h>
+ #include <linux/idr.h>
+@@ -536,7 +537,7 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
+ 
+ 	socks = READ_ONCE(reuse->num_socks);
+ 	if (unlikely(!socks))
+-		goto out;
++		goto failure;
+ 
+ 	/* paired with smp_wmb() in __reuseport_add_sock() */
+ 	smp_rmb();
+@@ -546,13 +547,13 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
+ 	if (!prog || prog->expected_attach_type != BPF_SK_REUSEPORT_SELECT_OR_MIGRATE) {
+ 		if (sock_net(sk)->ipv4.sysctl_tcp_migrate_req)
+ 			goto select_by_hash;
+-		goto out;
++		goto failure;
+ 	}
+ 
+ 	if (!skb) {
+ 		skb = alloc_skb(0, GFP_ATOMIC);
+ 		if (!skb)
+-			goto out;
++			goto failure;
+ 		allocated = true;
+ 	}
+ 
+@@ -565,12 +566,18 @@ struct sock *reuseport_migrate_sock(struct sock *sk,
+ 	if (!nsk)
+ 		nsk = reuseport_select_sock_by_hash(reuse, hash, socks);
+ 
+-	if (IS_ERR_OR_NULL(nsk) || unlikely(!refcount_inc_not_zero(&nsk->sk_refcnt)))
++	if (IS_ERR_OR_NULL(nsk) || unlikely(!refcount_inc_not_zero(&nsk->sk_refcnt))) {
+ 		nsk = NULL;
++		goto failure;
++	}
+ 
+ out:
+ 	rcu_read_unlock();
+ 	return nsk;
++
++failure:
++	__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
++	goto out;
+ }
+ EXPORT_SYMBOL(reuseport_migrate_sock);
+ 
+diff --git a/net/ipv4/inet_connection_sock.c b/net/ipv4/inet_connection_sock.c
+index b3b1066600cc..0fa2539eaa89 100644
+--- a/net/ipv4/inet_connection_sock.c
++++ b/net/ipv4/inet_connection_sock.c
+@@ -703,6 +703,8 @@ static struct request_sock *inet_reqsk_clone(struct request_sock *req,
+ 
+ 	nreq = kmem_cache_alloc(req->rsk_ops->slab, GFP_ATOMIC | __GFP_NOWARN);
+ 	if (!nreq) {
++		__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
++
+ 		/* paired with refcount_inc_not_zero() in reuseport_migrate_sock() */
+ 		sock_put(sk);
+ 		return NULL;
+@@ -876,9 +878,10 @@ static void reqsk_timer_handler(struct timer_list *t)
+ 		if (!inet_ehash_insert(req_to_sk(nreq), req_to_sk(oreq), NULL)) {
+ 			/* delete timer */
+ 			inet_csk_reqsk_queue_drop(sk_listener, nreq);
+-			goto drop;
++			goto no_ownership;
+ 		}
+ 
++		__NET_INC_STATS(net, LINUX_MIB_TCPMIGRATEREQSUCCESS);
+ 		reqsk_migrate_reset(oreq);
+ 		reqsk_queue_removed(&inet_csk(oreq->rsk_listener)->icsk_accept_queue, oreq);
+ 		reqsk_put(oreq);
+@@ -887,17 +890,19 @@ static void reqsk_timer_handler(struct timer_list *t)
+ 		return;
+ 	}
+ 
+-drop:
+ 	/* Even if we can clone the req, we may need not retransmit any more
+ 	 * SYN+ACKs (nreq->num_timeout > max_syn_ack_retries, etc), or another
+ 	 * CPU may win the "own_req" race so that inet_ehash_insert() fails.
+ 	 */
+ 	if (nreq) {
++		__NET_INC_STATS(net, LINUX_MIB_TCPMIGRATEREQFAILURE);
++no_ownership:
+ 		reqsk_migrate_reset(nreq);
+ 		reqsk_queue_removed(queue, nreq);
+ 		__reqsk_free(nreq);
+ 	}
+ 
++drop:
+ 	inet_csk_reqsk_queue_drop_and_put(oreq->rsk_listener, oreq);
+ }
+ 
+@@ -1135,11 +1140,13 @@ struct sock *inet_csk_complete_hashdance(struct sock *sk, struct sock *child,
+ 
+ 			refcount_set(&nreq->rsk_refcnt, 1);
+ 			if (inet_csk_reqsk_queue_add(sk, nreq, child)) {
++				__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQSUCCESS);
+ 				reqsk_migrate_reset(req);
+ 				reqsk_put(req);
+ 				return child;
+ 			}
+ 
++			__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
+ 			reqsk_migrate_reset(nreq);
+ 			__reqsk_free(nreq);
+ 		} else if (inet_csk_reqsk_queue_add(sk, req, child)) {
+@@ -1188,8 +1195,12 @@ void inet_csk_listen_stop(struct sock *sk)
+ 				refcount_set(&nreq->rsk_refcnt, 1);
+ 
+ 				if (inet_csk_reqsk_queue_add(nsk, nreq, child)) {
++					__NET_INC_STATS(sock_net(nsk),
++							LINUX_MIB_TCPMIGRATEREQSUCCESS);
+ 					reqsk_migrate_reset(req);
+ 				} else {
++					__NET_INC_STATS(sock_net(nsk),
++							LINUX_MIB_TCPMIGRATEREQFAILURE);
+ 					reqsk_migrate_reset(nreq);
+ 					__reqsk_free(nreq);
+ 				}
+diff --git a/net/ipv4/proc.c b/net/ipv4/proc.c
+index 80d13d8f982d..c1dbc41088a3 100644
+--- a/net/ipv4/proc.c
++++ b/net/ipv4/proc.c
+@@ -294,6 +294,8 @@ static const struct snmp_mib snmp4_net_list[] = {
+ 	SNMP_MIB_ITEM("TcpDuplicateDataRehash", LINUX_MIB_TCPDUPLICATEDATAREHASH),
+ 	SNMP_MIB_ITEM("TCPDSACKRecvSegs", LINUX_MIB_TCPDSACKRECVSEGS),
+ 	SNMP_MIB_ITEM("TCPDSACKIgnoredDubious", LINUX_MIB_TCPDSACKIGNOREDDUBIOUS),
++	SNMP_MIB_ITEM("TCPMigrateReqSuccess", LINUX_MIB_TCPMIGRATEREQSUCCESS),
++	SNMP_MIB_ITEM("TCPMigrateReqFailure", LINUX_MIB_TCPMIGRATEREQFAILURE),
+ 	SNMP_MIB_SENTINEL
+ };
+ 
+diff --git a/net/ipv4/tcp_minisocks.c b/net/ipv4/tcp_minisocks.c
+index 254dcb122876..6a834079206c 100644
+--- a/net/ipv4/tcp_minisocks.c
++++ b/net/ipv4/tcp_minisocks.c
+@@ -786,6 +786,9 @@ struct sock *tcp_check_req(struct sock *sk, struct sk_buff *skb,
+ 	return inet_csk_complete_hashdance(sk, child, req, own_req);
+ 
+ listen_overflow:
++	if (sk != req->rsk_listener)
++		__NET_INC_STATS(sock_net(sk), LINUX_MIB_TCPMIGRATEREQFAILURE);
++
+ 	if (!sock_net(sk)->ipv4.sysctl_tcp_abort_on_overflow) {
+ 		inet_rsk(req)->acked = 1;
+ 		return NULL;
+-- 
+2.32.0
+

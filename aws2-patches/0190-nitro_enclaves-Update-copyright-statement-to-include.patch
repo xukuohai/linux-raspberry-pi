@@ -1,0 +1,31 @@
+From aa47b3f7a0d8e933893a6bbf0fa2ceb032ce3e1c Mon Sep 17 00:00:00 2001
+From: Andra Paraschiv <andraprs@amazon.com>
+Date: Fri, 27 Aug 2021 18:49:27 +0300
+Subject: nitro_enclaves: Update copyright statement to include 2021
+
+Update the copyright statement to include 2021, as a change has been
+made over this year.
+
+Check commit d874742f6a73 ("nitro_enclaves: Set Bus Master for the NE
+PCI device") for the codebase update from this file (ne_pci_dev.c).
+
+Signed-off-by: Andra Paraschiv <andraprs@amazon.com>
+---
+ drivers/virt/nitro_enclaves/ne_pci_dev.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/virt/nitro_enclaves/ne_pci_dev.c b/drivers/virt/nitro_enclaves/ne_pci_dev.c
+index 143207e9b969..40b49ec8e30b 100644
+--- a/drivers/virt/nitro_enclaves/ne_pci_dev.c
++++ b/drivers/virt/nitro_enclaves/ne_pci_dev.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0
+ /*
+- * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
++ * Copyright 2020-2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  */
+ 
+ /**
+-- 
+2.32.0
+

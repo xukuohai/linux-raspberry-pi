@@ -1,0 +1,37 @@
+From 53029a38cb814113dbe0455b3f1d7b3df291a593 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Sun, 29 Mar 2020 13:40:57 +0100
+Subject: arm64: efi-header: Mark efi header as data
+
+This file only contains a set of constants forming the efi header.
+
+Make the constants part of a data symbol.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/efi-header.S | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/kernel/efi-header.S b/arch/arm64/kernel/efi-header.S
+index f4414598102d..5fb744d8acf2 100644
+--- a/arch/arm64/kernel/efi-header.S
++++ b/arch/arm64/kernel/efi-header.S
+@@ -28,6 +28,7 @@
+ 	.macro	__EFI_PE_HEADER
+ #ifdef CONFIG_EFI
+ 	.set	.Lpe_header_offset, . - .L_head
++SYM_DATA_START_LOCAL(arm64_efi_header)
+ 	.long	PE_MAGIC
+ 	.short	IMAGE_FILE_MACHINE_ARM64		// Machine
+ 	.short	.Lsection_count				// NumberOfSections
+@@ -167,6 +168,7 @@
+ 	 */
+ 	.balign	SEGMENT_ALIGN
+ .Lefi_header_end:
++SYM_DATA_END_LABEL(arm64_efi_header, SYM_L_LOCAL, efi_header_end)
+ #else
+ 	.set	.Lpe_header_offset, 0x0
+ #endif
+-- 
+2.32.0
+

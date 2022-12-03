@@ -1,0 +1,37 @@
+From 7435e4c41c27cc9129eef57220171f9b20e19ecc Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Sun, 24 Mar 2019 23:24:05 +0000
+Subject: lustre: adapt to get_ds() removal
+
+The ancient get_ds() function was removed upstream - replace
+it with KERNEL_DS, as the commit also did.
+
+Linux commit: 736706bee3298208343a76096370e4f6a5c55915 ("get rid of legacy 'get_ds()' function")
+
+[Note: this is one of the pieces of lustre code that makes it
+ x86 specific - the FSx team should address this]
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
+index c93e87dcc56d..62e03bde7722 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
+@@ -37,9 +37,9 @@
+ /* Debugging check only needed during development */
+ #ifdef OBD_CTXT_DEBUG
+ # define ASSERT_CTXT_MAGIC(magic) LASSERT((magic) == OBD_RUN_CTXT_MAGIC)
+-# define ASSERT_NOT_KERNEL_CTXT(msg) LASSERTF(!segment_eq(get_fs(), get_ds()),\
++# define ASSERT_NOT_KERNEL_CTXT(msg) LASSERTF(!segment_eq(get_fs(), KERNEL_DS),\
+ 					      msg)
+-# define ASSERT_KERNEL_CTXT(msg) LASSERTF(segment_eq(get_fs(), get_ds()), msg)
++# define ASSERT_KERNEL_CTXT(msg) LASSERTF(segment_eq(get_fs(), KERNEL_DS), msg)
+ #else
+ # define ASSERT_CTXT_MAGIC(magic) do {} while(0)
+ # define ASSERT_NOT_KERNEL_CTXT(msg) do {} while(0)
+-- 
+2.32.0
+

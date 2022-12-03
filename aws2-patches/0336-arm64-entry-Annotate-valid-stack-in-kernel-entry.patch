@@ -1,0 +1,38 @@
+From 7a2be0dcb4e213c3a5ac14d518b28011ac1d380d Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 20 Jan 2021 14:09:56 +0100
+Subject: arm64: entry: Annotate valid stack in kernel entry
+
+When taking an exception/interrupt, add unwind hints to indicate from
+which point the stack pointer is known to be valid.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+
+foo
+---
+ arch/arm64/kernel/entry.S | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index 2e49fe80f2cb..2c51b8a59c75 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -92,6 +92,7 @@
+ 	tbnz	x0, #THREAD_SHIFT, 0f
+ 	sub	x0, sp, x0			// x0'' = sp' - x0' = (sp + x0) - sp = x0
+ 	sub	sp, sp, x0			// sp'' = sp' - x0 = (sp + x0) - x0 = sp
++	UNWIND_HINT_FUNC sp_offset=PT_REGS_SIZE
+ 	b	el\()\el\()_\label
+ 
+ 0:
+@@ -124,6 +125,7 @@
+ 	sub	sp, sp, x0
+ 	mrs	x0, tpidrro_el0
+ #endif
++	UNWIND_HINT_FUNC sp_offset=PT_REGS_SIZE
+ 	b	el\()\el\()_\label
+ .org .Lventry_start\@ + 128	// Did we overflow the ventry slot?
+ 	.endm
+-- 
+2.32.0
+

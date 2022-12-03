@@ -1,0 +1,1349 @@
+From 3450f94d2b16412339a8cdd9c90ec6bcc14266d4 Mon Sep 17 00:00:00 2001
+From: Shaoying Xu <shaoyi@amazon.com>
+Date: Fri, 20 May 2022 19:04:51 +0000
+Subject: lustre: update to AmazonFSxLustreClient v2.10.8-11
+
+Signed-off-by: Shaoying Xu <shaoyi@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h            |  11 +-
+ .../lustre/include/lustre/lustre_idl.h        |  18 +-
+ .../lustrefsx/lustre/include/lustre_compat.h  | 103 +++++++-----
+ .../lustrefsx/lustre/include/lustre_disk.h    |   7 +-
+ .../lustrefsx/lustre/include/obd_class.h      |  17 +-
+ drivers/staging/lustrefsx/lustre/llite/file.c |  26 ++-
+ .../lustrefsx/lustre/llite/llite_internal.h   |  35 ++--
+ .../lustrefsx/lustre/llite/llite_lib.c        |  52 +++---
+ .../lustrefsx/lustre/llite/lproc_llite.c      |   5 +-
+ .../staging/lustrefsx/lustre/llite/namei.c    |  38 +++--
+ .../staging/lustrefsx/lustre/llite/xattr.c    |  46 ++++--
+ .../lustrefsx/lustre/llite/xattr_security.c   |   4 +-
+ .../lustrefsx/lustre/mgc/mgc_internal.h       |  16 +-
+ .../lustrefsx/lustre/mgc/mgc_request.c        | 154 +++++++++---------
+ .../lustrefsx/lustre/obdclass/obd_config.c    |  35 ++--
+ .../lustre/obdclass/obd_mount_server.c        |   4 +-
+ .../lustrefsx/lustre/ptlrpc/wiretest.c        |  12 +-
+ drivers/staging/lustrefsx/undef.h             |   3 +
+ 18 files changed, 339 insertions(+), 247 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index fce8b057480b..f4d6ee0ba3c8 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -892,6 +892,9 @@
+ /* Define to 1 if you have the <unistd.h> header file. */
+ #define HAVE_UNISTD_H 1
+ 
++/* 'inode_operations' members have user namespace argument */
++/* #undef HAVE_USER_NAMESPACE_ARG */
++
+ /* kernel has vfs_rename with 5 args */
+ /* #undef HAVE_VFS_RENAME_5ARGS */
+ 
+@@ -981,7 +984,7 @@
+ #define LUSTRE_PATCH 8
+ 
+ /* A copy of PACKAGE_VERSION */
+-#define LUSTRE_VERSION_STRING "2.10.8-10"
++#define LUSTRE_VERSION_STRING "2.10.8-11"
+ 
+ /* maximum number of MDS threads */
+ /* #undef MDS_MAX_THREADS */
+@@ -1014,7 +1017,7 @@
+ #define PACKAGE_NAME "Lustre"
+ 
+ /* Define to the full name and version of this package. */
+-#define PACKAGE_STRING "Lustre 2.10.8-10"
++#define PACKAGE_STRING "Lustre 2.10.8-11"
+ 
+ /* Define to the one symbol short name of this package. */
+ #define PACKAGE_TARNAME "lustre"
+@@ -1023,7 +1026,7 @@
+ #define PACKAGE_URL ""
+ 
+ /* Define to the version of this package. */
+-#define PACKAGE_VERSION "2.10.8-10"
++#define PACKAGE_VERSION "2.10.8-11"
+ 
+ /* name of parallel fsck program */
+ #define PFSCK "fsck"
+@@ -1067,7 +1070,7 @@
+ /* #undef USE_LU_REF */
+ 
+ /* Version number of package */
+-#define VERSION "2.10.8-10"
++#define VERSION "2.10.8-11"
+ 
+ /* zfs fix version */
+ /* #undef ZFS_FIX */
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre/lustre_idl.h b/drivers/staging/lustrefsx/lustre/include/lustre/lustre_idl.h
+index f2c850c0f184..9840237e4e04 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre/lustre_idl.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre/lustre_idl.h
+@@ -2448,20 +2448,20 @@ struct mgs_nidtbl_entry {
+         } u;
+ };
+ 
+-enum {
+-	CONFIG_T_CONFIG  = 0,
+-	CONFIG_T_SPTLRPC = 1,
+-	CONFIG_T_RECOVER = 2,
+-	CONFIG_T_PARAMS  = 3,
+-	CONFIG_T_NODEMAP = 4,
+-	CONFIG_T_BARRIER = 5,
+-	CONFIG_T_MAX
++enum mgs_cfg_type {
++	MGS_CFG_T_CONFIG	= 0,
++	MGS_CFG_T_SPTLRPC	= 1,
++	MGS_CFG_T_RECOVER	= 2,
++	MGS_CFG_T_PARAMS	= 3,
++	MGS_CFG_T_NODEMAP	= 4,
++	MGS_CFG_T_BARRIER	= 5,
++	MGS_CFG_T_MAX
+ };
+ 
+ struct mgs_config_body {
+ 	char     mcb_name[MTI_NAME_MAXLEN]; /* logname */
+ 	__u64    mcb_offset;    /* next index of config log to request */
+-	__u16    mcb_type;      /* type of log: CONFIG_T_[CONFIG|RECOVER] */
++	__u16    mcb_type;      /* type of log: MGS_CFG_T_[CONFIG|RECOVER] */
+ 	__u8     mcb_nm_cur_pass;
+ 	__u8     mcb_bits;      /* bits unit size of config log */
+ 	__u32    mcb_units;     /* # of units for bulk transfer */
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index 441f737170da..2b14937780e6 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -373,10 +373,12 @@ static inline struct inode *file_inode(const struct file *file)
+ #define ll_vfs_rename(a, b, c, d) vfs_rename(a, b, c, d)
+ #endif
+ 
+-#ifdef HAVE_VFS_UNLINK_3ARGS
+-#define ll_vfs_unlink(a, b) vfs_unlink(a, b, NULL)
++#ifdef HAVE_USER_NAMESPACE_ARG
++#define vfs_unlink(ns, dir, de) vfs_unlink(ns, dir, de, NULL)
++#elif defined HAVE_VFS_UNLINK_3ARGS
++#define vfs_unlink(ns, dir, de) vfs_unlink(dir, de, NULL)
+ #else
+-#define ll_vfs_unlink(a, b) vfs_unlink(a, b)
++#define vfs_unlink(ns, dir, de) vfs_unlink(dir, de)
+ #endif
+ 
+ #ifndef HAVE_INODE_LOCK
+@@ -469,45 +471,9 @@ int ll_removexattr(struct dentry *dentry, const char *name);
+ #endif /* ! HAVE_XATTR_HANDLER_FLAGS */
+ #endif /* HAVE_IOP_XATTR */
+ 
+-#ifndef HAVE_VFS_SETXATTR
+-const struct xattr_handler *get_xattr_type(const char *name);
+-
+-#ifdef HAVE_XATTR_HANDLER_FLAGS
+-static inline int
+-__vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
+-	       const void *value, size_t size, int flags)
+-{
+-	const struct xattr_handler *handler;
+-	int rc;
+-
+-	handler = get_xattr_type(name);
+-	if (!handler)
+-		return -ENXIO;
+-
+-#if defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+-	rc = handler->set(handler, dentry, inode, name, value, size,
+-			  XATTR_CREATE);
+-#elif defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+-	rc = handler->set(handler, dentry, name, value, size, XATTR_CREATE);
+-#else
+-	rc = handler->set(dentry, name, value, size, XATTR_CREATE,
+-			  handler->flags);
+-#endif /* !HAVE_XATTR_HANDLER_INODE_PARAM */
+-	return rc;
+-}
+-#else /* !HAVE_XATTR_HANDLER_FLAGS */
+-static inline int
+-__vfs_setxattr(struct dentry *dentry, struct inode *inode, const char *name,
+-	       const void *value, size_t size, int flags)
+-{
+-	return ll_setxattr(dentry, name, value, size, flags);
+-}
+-#endif /* HAVE_XATTR_HANDLER_FLAGS */
+-#endif /* HAVE_VFS_SETXATTR */
+-
+ #ifdef HAVE_IOP_SET_ACL
+ #ifdef CONFIG_FS_POSIX_ACL
+-#ifndef HAVE_POSIX_ACL_UPDATE_MODE
++#if !defined(HAVE_USER_NAMESPACE_ARG) && !defined(HAVE_POSIX_ACL_UPDATE_MODE)
+ static inline int posix_acl_update_mode(struct inode *inode, umode_t *mode_p,
+ 			  struct posix_acl **acl)
+ {
+@@ -723,4 +689,61 @@ static inline void ll_security_release_secctx(char *secdata, u32 seclen)
+ #endif
+ }
+ 
++static inline int ll_vfs_getxattr(struct dentry *dentry, struct inode *inode,
++				  const char *name,
++				  void *value, size_t size)
++{
++#ifdef HAVE_USER_NAMESPACE_ARG
++	return vfs_getxattr(&init_user_ns, dentry, name, value, size);
++#elif defined(HAVE_VFS_SETXATTR)
++	return __vfs_getxattr(dentry, inode, name, value, size);
++#else
++	if (unlikely(!inode->i_op->getxattr))
++		return -ENODATA;
++
++	return inode->i_op->getxattr(dentry, name, value, size);
++#endif
++}
++
++static inline int ll_vfs_setxattr(struct dentry *dentry, struct inode *inode,
++				  const char *name,
++				  const void *value, size_t size, int flags)
++{
++#ifdef HAVE_USER_NAMESPACE_ARG
++	return vfs_setxattr(&init_user_ns, dentry, name, value, size, flags);
++#elif defined(HAVE_VFS_SETXATTR)
++	return __vfs_setxattr(dentry, inode, name, value, size, flags);
++#else
++	if (unlikely(!inode->i_op->setxattr))
++		return -EOPNOTSUPP;
++
++	return inode->i_op->setxattr(dentry, name, value, size, flags);
++#endif
++}
++
++static inline int ll_vfs_removexattr(struct dentry *dentry, struct inode *inode,
++				     const char *name)
++{
++#ifdef HAVE_USER_NAMESPACE_ARG
++	return vfs_removexattr(&init_user_ns, dentry, name);
++#elif defined(HAVE_VFS_SETXATTR)
++    return __vfs_removexattr(dentry, name);
++#else
++	if (unlikely(!inode->i_op->setxattr))
++		return -EOPNOTSUPP;
++
++	return inode->i_op->removexattr(dentry, name);
++#endif
++}
++
++#ifndef HAVE_USER_NAMESPACE_ARG
++#define posix_acl_update_mode(ns, inode, mode, acl) \
++	posix_acl_update_mode(inode, mode, acl)
++#define notify_change(ns, de, attr, inode)	notify_change(de, attr, inode)
++#define inode_owner_or_capable(ns, inode)	inode_owner_or_capable(inode)
++#define vfs_create(ns, dir, de, mode, ex)	vfs_create(dir, de, mode, ex)
++#define vfs_mkdir(ns, dir, de, mode)		vfs_mkdir(dir, de, mode)
++#define ll_set_acl(ns, inode, acl, type)	ll_set_acl(inode, acl, type)
++#endif
++
+ #endif /* _LUSTRE_COMPAT_H */
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_disk.h b/drivers/staging/lustrefsx/lustre/include/lustre_disk.h
+index 9b20b7ba8f09..763e682f2d2b 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_disk.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_disk.h
+@@ -353,8 +353,11 @@ int server_mti_print(const char *title, struct mgs_target_info *mti);
+ void server_calc_timeout(struct lustre_sb_info *lsi, struct obd_device *obd);
+ # endif
+ 
+-int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id, int type);
+-int mgc_logname2resid(char *fsname, struct ldlm_res_id *res_id, int type);
++/* mgc_request.c */
++int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id,
++		     enum mgs_cfg_type type);
++int mgc_logname2resid(char *fsname, struct ldlm_res_id *res_id,
++		      enum mgs_cfg_type type);
+ 
+ /** @} disk */
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/include/obd_class.h b/drivers/staging/lustrefsx/lustre/include/obd_class.h
+index da40a4e38f91..437a70080714 100644
+--- a/drivers/staging/lustrefsx/lustre/include/obd_class.h
++++ b/drivers/staging/lustrefsx/lustre/include/obd_class.h
+@@ -169,7 +169,7 @@ int class_add_conn(struct obd_device *obd, struct lustre_cfg *lcfg);
+ 
+ /* Passed as data param to class_config_parse_llog */
+ struct config_llog_instance {
+-	void			*cfg_instance;
++	unsigned long		 cfg_instance;
+ 	struct super_block	*cfg_sb;
+ 	struct obd_uuid		 cfg_uuid;
+ 	llog_cb_t		 cfg_callback;
+@@ -181,6 +181,19 @@ struct config_llog_instance {
+ int class_config_parse_llog(const struct lu_env *env, struct llog_ctxt *ctxt,
+ 			    char *name, struct config_llog_instance *cfg);
+ 
++/**
++ * Generate a unique configuration instance for this mount
++ *
++ * Temporary hack to bypass ASLR in 4.15+ kernels, a better fix soon.
++ * For now, use the same value as before - the superblock pointer value.
++ *
++ * Using the client UUID would be an option, but it needs more testing.
++ */
++static inline unsigned long ll_get_cfg_instance(struct super_block *sb)
++{
++	return (unsigned long)sb;
++}
++
+ #define CONFIG_SUB_SPTLRPC	0x01
+ #define CONFIG_SUB_RECOVER	0x02
+ #define CONFIG_SUB_PARAMS	0x04
+@@ -224,7 +237,7 @@ struct config_llog_data {
+ 	struct config_llog_data    *cld_barrier;/* barrier log (for MDT only) */
+ 	struct obd_export	   *cld_mgcexp;
+ 	struct mutex		    cld_lock;
+-	int			    cld_type;
++	enum mgs_cfg_type	    cld_type;
+ 	unsigned int		    cld_stopping:1, /* we were told to stop
+ 						     * watching */
+ 				    cld_lostlock:1; /* lock not requeued */
+diff --git a/drivers/staging/lustrefsx/lustre/llite/file.c b/drivers/staging/lustrefsx/lustre/llite/file.c
+index 04cc72f45186..65d57dbe70b4 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/file.c
++++ b/drivers/staging/lustrefsx/lustre/llite/file.c
+@@ -904,8 +904,8 @@ static int ll_check_swap_layouts_validity(struct inode *inode1,
+ 	if (!S_ISREG(inode1->i_mode) || !S_ISREG(inode2->i_mode))
+ 		return -EINVAL;
+ 
+-	if (inode_permission(inode1, MAY_WRITE) ||
+-	    inode_permission(inode2, MAY_WRITE))
++	if (inode_permission(&init_user_ns, inode1, MAY_WRITE) ||
++	    inode_permission(&init_user_ns, inode2, MAY_WRITE))
+ 		return -EPERM;
+ 
+ 	if (inode1->i_sb != inode2->i_sb)
+@@ -3815,8 +3815,8 @@ static inline dev_t ll_compat_encode_dev(dev_t dev)
+ 	return MKDEV(MAJOR(dev) & 0xff, MINOR(dev) & 0xff);
+ }
+ 
+-#ifdef HAVE_INODEOPS_ENHANCED_GETATTR
+-int ll_getattr(const struct path *path, struct kstat *stat,
++#if defined(HAVE_USER_NAMESPACE_ARG) || defined(HAVE_INODEOPS_ENHANCED_GETATTR)
++int ll_getattr(struct user_namespace *mnt_userns, const struct path *path, struct kstat *stat,
+ 	       u32 request_mask, unsigned int flags)
+ 
+ {
+@@ -3918,7 +3918,7 @@ struct posix_acl *ll_get_acl(struct inode *inode, int type)
+ 
+ #ifdef HAVE_IOP_SET_ACL
+ #ifdef CONFIG_FS_POSIX_ACL
+-int ll_set_acl(struct inode *inode, struct posix_acl *acl, int type)
++int ll_set_acl(struct user_namespace *mnt_userns, struct inode *inode, struct posix_acl *acl, int type)
+ {
+ 	struct ll_sb_info *sbi = ll_i2sbi(inode);
+ 	struct ptlrpc_request *req = NULL;
+@@ -3932,7 +3932,7 @@ int ll_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+ 	case ACL_TYPE_ACCESS:
+ 		name = XATTR_NAME_POSIX_ACL_ACCESS;
+ 		if (acl) {
+-			rc = posix_acl_update_mode(inode, &inode->i_mode, &acl);
++			rc = posix_acl_update_mode(mnt_userns, inode, &inode->i_mode, &acl);
+ 			if (rc)
+ 				GOTO(out, rc);
+ 		}
+@@ -3976,6 +3976,7 @@ int ll_set_acl(struct inode *inode, struct posix_acl *acl, int type)
+ #endif /* CONFIG_FS_POSIX_ACL */
+ #endif /* HAVE_IOP_SET_ACL */
+ 
++#ifndef HAVE_USER_NAMESPACE_ARG
+ #ifndef HAVE_GENERIC_PERMISSION_2ARGS
+ static int
+ # ifdef HAVE_GENERIC_PERMISSION_4ARGS
+@@ -4007,16 +4008,9 @@ ll_check_acl(struct inode *inode, int mask)
+ # endif /* CONFIG_FS_POSIX_ACL */
+ }
+ #endif /* HAVE_GENERIC_PERMISSION_2ARGS */
++#endif /* HAVE_USER_NAMESPACE_ARG */
+ 
+-#ifdef HAVE_GENERIC_PERMISSION_4ARGS
+-int ll_inode_permission(struct inode *inode, int mask, unsigned int flags)
+-#else
+-# ifdef HAVE_INODE_PERMISION_2ARGS
+-int ll_inode_permission(struct inode *inode, int mask)
+-# else
+-int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
+-# endif
+-#endif
++int ll_inode_permission(struct user_namespace *mnt_userns, struct inode *inode, int mask)
+ {
+ 	int rc = 0;
+ 	struct ll_sb_info *sbi;
+@@ -4077,7 +4071,7 @@ int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd)
+ 	}
+ 
+ 	ll_stats_ops_tally(sbi, LPROC_LL_INODE_PERM, 1);
+-	rc = ll_generic_permission(inode, mask, flags, ll_check_acl);
++	rc = generic_permission(mnt_userns, inode, mask);
+ 	/* restore current process's credentials and FS capability */
+ 	if (squash_id) {
+ 		revert_creds(old_cred);
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_internal.h b/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
+index ce05c17a2231..bfc4f8bfd7be 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
+@@ -236,6 +236,17 @@ struct ll_inode_info {
+ 	struct list_head		lli_xattrs; /* ll_xattr_entry->xe_list */
+ };
+ 
++#ifndef HAVE_USER_NAMESPACE_ARG
++#define inode_permission(ns, inode, mask)	inode_permission(inode, mask)
++#define generic_permission(ns, inode, mask)	generic_permission(inode, mask)
++#define simple_setattr(ns, de, iattr)		simple_setattr(de, iattr)
++#define ll_inode_permission(ns, inode, mask)	ll_inode_permission(inode, mask)
++#ifdef HAVE_INODEOPS_ENHANCED_GETATTR
++#define ll_getattr(ns, path, stat, mask, fl)	ll_getattr(path, stat, mask, fl)
++#endif /* HAVE_INODEOPS_ENHANCED_GETATTR */
++#define ll_setattr(ns, de, attr)		ll_setattr(de, attr)
++#endif
++
+ static inline __u32 ll_layout_version_get(struct ll_inode_info *lli)
+ {
+ 	__u32 gen;
+@@ -824,16 +835,17 @@ int ll_md_real_close(struct inode *inode, fmode_t fmode);
+ extern void ll_rw_stats_tally(struct ll_sb_info *sbi, pid_t pid,
+                               struct ll_file_data *file, loff_t pos,
+                               size_t count, int rw);
+-#ifdef HAVE_INODEOPS_ENHANCED_GETATTR
+-int ll_getattr(const struct path *path, struct kstat *stat,
+-	       u32 request_mask, unsigned int flags);
++#if defined(HAVE_USER_NAMESPACE_ARG) || defined(HAVE_INODEOPS_ENHANCED_GETATTR)
++int ll_getattr(struct user_namespace *mnt_userns, const struct path *path,
++	       struct kstat *stat, u32 request_mask, unsigned int flags);
+ #else
+ int ll_getattr(struct vfsmount *mnt, struct dentry *de, struct kstat *stat);
+-#endif
++#endif /* HAVE_USER_NAMESPACE_ARG */
+ struct posix_acl *ll_get_acl(struct inode *inode, int type);
+ #ifdef HAVE_IOP_SET_ACL
+ #ifdef CONFIG_FS_POSIX_ACL
+-int ll_set_acl(struct inode *inode, struct posix_acl *acl, int type);
++int ll_set_acl(struct user_namespace *mnt_userns, struct inode *inode,
++	       struct posix_acl *acl, int type);
+ #else  /* !CONFIG_FS_POSIX_ACL */
+ #define ll_set_acl NULL
+ #endif /* CONFIG_FS_POSIX_ACL */
+@@ -843,15 +855,7 @@ int ll_migrate(struct inode *parent, struct file *file, int mdtidx,
+ 	       const char *name, int namelen);
+ int ll_get_fid_by_name(struct inode *parent, const char *name,
+ 		       int namelen, struct lu_fid *fid, struct inode **inode);
+-#ifdef HAVE_GENERIC_PERMISSION_4ARGS
+-int ll_inode_permission(struct inode *inode, int mask, unsigned int flags);
+-#else
+-# ifndef HAVE_INODE_PERMISION_2ARGS
+-int ll_inode_permission(struct inode *inode, int mask, struct nameidata *nd);
+-# else
+-int ll_inode_permission(struct inode *inode, int mask);
+-# endif
+-#endif
++int ll_inode_permission(struct user_namespace *mnt_userns, struct inode *inode, int mask);
+ int ll_ioctl_fsgetxattr(struct inode *inode, unsigned int cmd,
+ 			unsigned long arg);
+ int ll_ioctl_fssetxattr(struct inode *inode, unsigned int cmd,
+@@ -903,7 +907,8 @@ struct inode *ll_inode_from_resource_lock(struct ldlm_lock *lock);
+ void ll_dir_clear_lsm_md(struct inode *inode);
+ void ll_clear_inode(struct inode *inode);
+ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import);
+-int ll_setattr(struct dentry *de, struct iattr *attr);
++int ll_setattr(struct user_namespace *mnt_userns, struct dentry *de,
++	       struct iattr *attr);
+ int ll_statfs(struct dentry *de, struct kstatfs *sfs);
+ int ll_statfs_internal(struct super_block *sb, struct obd_statfs *osfs,
+                        __u64 max_age, __u32 flags);
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+index 644b1c4e26d4..04256c260008 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+@@ -978,13 +978,16 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+ 	char	*profilenm = get_profile_name(sb);
+ 	struct config_llog_instance *cfg;
+ 	/* %p for void* in printf needs 16+2 characters: 0xffffffffffffffff */
+-	const int instlen = sizeof(cfg->cfg_instance) * 2 + 2;
++	const int instlen = 16 + 2;
++	unsigned long cfg_instance = ll_get_cfg_instance(sb);
+ 	int	md_len = 0;
+ 	int	dt_len = 0;
+ 	int	err;
+ 	ENTRY;
+ 
+-	CDEBUG(D_VFSTRACE, "VFS Op: sb %p\n", sb);
++	/* for ASLR, to map between cfg_instance and hashed ptr */
++	CDEBUG(D_VFSTRACE, "VFS Op: cfg_instance %s-%016lx (sb %p)\n",
++	       profilenm, cfg_instance, sb);
+ 
+ 	OBD_ALLOC_PTR(cfg);
+ 	if (cfg == NULL)
+@@ -1004,7 +1007,7 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+ 	if (err)
+ 		GOTO(out_free, err);
+ 
+-	err = super_setup_bdi_name(sb, "lustre-%p", sb);
++	err = super_setup_bdi_name(sb, "lustre-%016lx", cfg_instance);
+ 	if (err)
+ 		GOTO(out_free, err);
+ 
+@@ -1024,10 +1027,10 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+ 		}
+ 	}
+ 
+-	/* Generate a string unique to this super, in case some joker tries
+-	   to mount the same fs at two mount points.
+-	   Use the address of the super itself.*/
+-	cfg->cfg_instance = sb;
++	/* The cfg_instance is a value unique to this super, in case some
++	 * joker tries to mount the same fs at two mount points.
++	 */
++	cfg->cfg_instance = cfg_instance;
+ 	cfg->cfg_uuid = lsi->lsi_llsbi->ll_sb_uuid;
+ 	cfg->cfg_callback = class_config_llog_handler;
+ 	cfg->cfg_sub_clds = CONFIG_SUB_CLIENT;
+@@ -1051,13 +1054,13 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+ 	OBD_ALLOC(dt, dt_len);
+ 	if (!dt)
+ 		GOTO(out_proc, err = -ENOMEM);
+-	snprintf(dt, dt_len - 1, "%s-%p", lprof->lp_dt, cfg->cfg_instance);
++	snprintf(dt, dt_len - 1, "%s-%016lx", lprof->lp_dt, cfg_instance);
+ 
+ 	md_len = strlen(lprof->lp_md) + instlen + 2;
+ 	OBD_ALLOC(md, md_len);
+ 	if (!md)
+ 		GOTO(out_proc, err = -ENOMEM);
+-	snprintf(md, md_len - 1, "%s-%p", lprof->lp_md, cfg->cfg_instance);
++	snprintf(md, md_len - 1, "%s-%016lx", lprof->lp_md, cfg_instance);
+ 
+ 	/* connections, registrations, sb setup */
+ 	err = client_common_fill_super(sb, md, dt, mnt);
+@@ -1088,20 +1091,24 @@ int ll_fill_super(struct super_block *sb, struct vfsmount *mnt)
+ void ll_put_super(struct super_block *sb)
+ {
+ 	struct config_llog_instance cfg, params_cfg;
+-        struct obd_device *obd;
+-        struct lustre_sb_info *lsi = s2lsi(sb);
+-        struct ll_sb_info *sbi = ll_s2sbi(sb);
+-        char *profilenm = get_profile_name(sb);
++	struct obd_device *obd;
++	struct lustre_sb_info *lsi = s2lsi(sb);
++	struct ll_sb_info *sbi = ll_s2sbi(sb);
++	char *profilenm = get_profile_name(sb);
++	unsigned long cfg_instance = ll_get_cfg_instance(sb);
+ 	long ccc_count;
+ 	int next, force = 1, rc = 0;
+-        ENTRY;
++	ENTRY;
+ 
+-        CDEBUG(D_VFSTRACE, "VFS Op: sb %p - %s\n", sb, profilenm);
+ 
+-        cfg.cfg_instance = sb;
+-        lustre_end_log(sb, profilenm, &cfg);
++	/* Should replace instance_id with something better for ASLR */
++	CDEBUG(D_VFSTRACE, "VFS Op: cfg_instance %s-%016lx (sb %p)\n",
++	       profilenm, cfg_instance, sb);
+ 
+-	params_cfg.cfg_instance = sb;
++	cfg.cfg_instance = cfg_instance;
++	lustre_end_log(sb, profilenm, &cfg);
++
++	params_cfg.cfg_instance = cfg_instance;
+ 	lustre_end_log(sb, PARAMS_FILENAME, &params_cfg);
+ 
+         if (sbi->ll_md_exp) {
+@@ -1122,7 +1129,6 @@ void ll_put_super(struct super_block *sb)
+ 	if (force == 0 && rc != -EINTR)
+ 		LASSERTF(ccc_count == 0, "count: %li\n", ccc_count);
+ 
+-
+         /* We need to set force before the lov_disconnect in
+            lustre_common_put_super, since l_d cleans up osc's as well. */
+         if (force) {
+@@ -1506,7 +1512,8 @@ static int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data)
+ 			    !S_ISDIR(inode->i_mode)) {
+ 				ia_valid = op_data->op_attr.ia_valid;
+ 				op_data->op_attr.ia_valid &= ~TIMES_SET_FLAGS;
+-				rc = simple_setattr(dentry, &op_data->op_attr);
++				rc = simple_setattr(&init_user_ns, dentry,
++						    &op_data->op_attr);
+ 				op_data->op_attr.ia_valid = ia_valid;
+ 			}
+ 		} else if (rc != -EPERM && rc != -EACCES && rc != -ETXTBSY) {
+@@ -1528,7 +1535,7 @@ static int ll_md_setattr(struct dentry *dentry, struct md_op_data *op_data)
+ 	op_data->op_attr.ia_valid &= ~(TIMES_SET_FLAGS | ATTR_SIZE);
+ 	if (S_ISREG(inode->i_mode))
+ 		inode_lock(inode);
+-	rc = simple_setattr(dentry, &op_data->op_attr);
++	rc = simple_setattr(&init_user_ns, dentry, &op_data->op_attr);
+ 	if (S_ISREG(inode->i_mode))
+ 		inode_unlock(inode);
+ 	op_data->op_attr.ia_valid = ia_valid;
+@@ -1713,7 +1720,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
+ 	return rc;
+ }
+ 
+-int ll_setattr(struct dentry *de, struct iattr *attr)
++int ll_setattr(struct user_namespace *mnt_userns, struct dentry *de,
++	       struct iattr *attr)
+ {
+ 	int mode = de->d_inode->i_mode;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+index ee696ef0a4c7..6ed67697eb45 100755
+--- a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
++++ b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+@@ -1289,6 +1289,7 @@ int lprocfs_ll_register_mountpoint(struct proc_dir_entry *parent,
+ 	struct lprocfs_vars lvars[2];
+ 	struct lustre_sb_info *lsi = s2lsi(sb);
+ 	struct ll_sb_info *sbi = ll_s2sbi(sb);
++	unsigned long cfg_instance = ll_get_cfg_instance(sb);
+ 	char name[MAX_STRING_SIZE + 1], *ptr;
+ 	int err, id, len, rc;
+ 	ENTRY;
+@@ -1307,8 +1308,8 @@ int lprocfs_ll_register_mountpoint(struct proc_dir_entry *parent,
+ 		len -= 7;
+ 
+ 	/* Mount info */
+-	snprintf(name, MAX_STRING_SIZE, "%.*s-%p", len,
+-		 lsi->lsi_lmd->lmd_profile, sb);
++	snprintf(name, MAX_STRING_SIZE, "%.*s-%016lx", len,
++		 lsi->lsi_lmd->lmd_profile, cfg_instance);
+ 
+ 	sbi->ll_proc_root = lprocfs_register(name, parent, NULL, NULL);
+ 	if (IS_ERR(sbi->ll_proc_root)) {
+diff --git a/drivers/staging/lustrefsx/lustre/llite/namei.c b/drivers/staging/lustrefsx/lustre/llite/namei.c
+index ae7101b1885f..3ff57049caa9 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/namei.c
++++ b/drivers/staging/lustrefsx/lustre/llite/namei.c
+@@ -49,6 +49,18 @@
+ #include <lustre_ver.h>
+ #include "llite_internal.h"
+ 
++#ifndef HAVE_USER_NAMESPACE_ARG
++#define ll_create_nd(ns, dir, de, mode, ex)	ll_create_nd(dir, de, mode, ex)
++#define ll_mkdir(ns, dir, dch, mode)		ll_mkdir(dir, dch, mode)
++#define ll_mknod(ns, dir, dch, mode, rd)	ll_mknod(dir, dch, mode, rd)
++#ifdef HAVE_IOPS_RENAME_WITH_FLAGS
++#define ll_rename(ns, src, sdc, tgt, tdc, fl)	ll_rename(src, sdc, tgt, tdc, fl)
++#else
++#define ll_rename(ns, src, sdc, tgt, tdc)	ll_rename(src, sdc, tgt, tdc)
++#endif /* HAVE_IOPS_RENAME_WITH_FLAGS */
++#define ll_symlink(nd, dir, dch, old)		ll_symlink(dir, dch, old)
++#endif
++
+ static int ll_create_it(struct inode *dir, struct dentry *dentry,
+ 			struct lookup_intent *it,
+ 			void *secctx, __u32 secctxlen);
+@@ -683,7 +695,8 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
+ 	 * to proceed with lookup. LU-4185
+ 	 */
+ 	if ((flags & LOOKUP_CREATE) && !(flags & LOOKUP_OPEN) &&
+-	    (inode_permission(parent, MAY_WRITE | MAY_EXEC) == 0))
++	    (inode_permission(&init_user_ns,
++			      parent, MAY_WRITE | MAY_EXEC) == 0))
+ 		return NULL;
+ 
+ 	if (flags & (LOOKUP_PARENT|LOOKUP_OPEN|LOOKUP_CREATE))
+@@ -1147,8 +1160,8 @@ static int ll_new_node(struct inode *dir, struct dentry *dchild,
+ 	return err;
+ }
+ 
+-static int ll_mknod(struct inode *dir, struct dentry *dchild, ll_umode_t mode,
+-		    dev_t rdev)
++static int ll_mknod(struct user_namespace *mnt_userns, struct inode *dir,
++		    struct dentry *dchild, umode_t mode, dev_t rdev)
+ {
+ 	struct qstr *name = &dchild->d_name;
+ 	int err;
+@@ -1190,7 +1203,8 @@ static int ll_mknod(struct inode *dir, struct dentry *dchild, ll_umode_t mode,
+ /*
+  * Plain create. Intent create is handled in atomic_open.
+  */
+-static int ll_create_nd(struct inode *dir, struct dentry *dentry,
++static int ll_create_nd(struct user_namespace *mnt_userns,
++			struct inode *dir, struct dentry *dentry,
+ 			umode_t mode, bool want_excl)
+ {
+ 	int rc;
+@@ -1204,7 +1218,7 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
+ 
+ 	/* Using mknod(2) to create a regular file is designed to not recognize
+ 	 * volatile file name, so we use ll_mknod() here. */
+-	rc = ll_mknod(dir, dentry, mode, 0);
++	rc = ll_mknod(mnt_userns, dir, dentry, mode, 0);
+ 
+ 	ll_stats_ops_tally(ll_i2sbi(dir), LPROC_LL_CREATE, 1);
+ 
+@@ -1265,8 +1279,8 @@ static int ll_create_nd(struct inode *dir, struct dentry *dentry,
+ }
+ #endif /* HAVE_IOP_ATOMIC_OPEN */
+ 
+-static int ll_symlink(struct inode *dir, struct dentry *dchild,
+-		      const char *oldpath)
++static int ll_symlink(struct user_namespace *mnt_userns, struct inode *dir,
++		      struct dentry *dchild, const char *oldpath)
+ {
+ 	struct qstr *name = &dchild->d_name;
+ 	int err;
+@@ -1318,7 +1332,8 @@ static int ll_link(struct dentry *old_dentry, struct inode *dir,
+         RETURN(err);
+ }
+ 
+-static int ll_mkdir(struct inode *dir, struct dentry *dchild, ll_umode_t mode)
++static int ll_mkdir(struct user_namespace *mnt_userns, struct inode *dir,
++		    struct dentry *dchild, umode_t mode)
+ {
+ 	struct qstr *name = &dchild->d_name;
+         int err;
+@@ -1449,9 +1464,10 @@ static int ll_unlink(struct inode *dir, struct dentry *dchild)
+ 	RETURN(rc);
+ }
+ 
+-static int ll_rename(struct inode *src, struct dentry *src_dchild,
++static int ll_rename(struct user_namespace *mnt_userns,
++		     struct inode *src, struct dentry *src_dchild,
+ 		     struct inode *tgt, struct dentry *tgt_dchild
+-#ifdef HAVE_IOPS_RENAME_WITH_FLAGS
++#if defined(HAVE_USER_NAMESPACE_ARG) || defined(HAVE_IOPS_RENAME_WITH_FLAGS)
+ 		     , unsigned int flags
+ #endif
+ 		     )
+@@ -1464,7 +1480,7 @@ static int ll_rename(struct inode *src, struct dentry *src_dchild,
+ 	int err;
+ 	ENTRY;
+ 
+-#ifdef HAVE_IOPS_RENAME_WITH_FLAGS
++#if defined(HAVE_USER_NAMESPACE_ARG) || defined(HAVE_IOPS_RENAME_WITH_FLAGS)
+ 	if (flags)
+ 		return -EINVAL;
+ #endif
+diff --git a/drivers/staging/lustrefsx/lustre/llite/xattr.c b/drivers/staging/lustrefsx/lustre/llite/xattr.c
+index 78c774ef738c..ae0ee171ac4e 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/xattr.c
++++ b/drivers/staging/lustrefsx/lustre/llite/xattr.c
+@@ -92,7 +92,13 @@ static int xattr_type_filter(struct ll_sb_info *sbi,
+ 	return 0;
+ }
+ 
++#ifndef HAVE_USER_NAMESPACE_ARG
++#define ll_xattr_set_common(hd, ns, de, inode, name, value, size, flags) \
++	ll_xattr_set_common(hd, de, inode, name, value, size, flags)
++#endif
++
+ static int ll_xattr_set_common(const struct xattr_handler *handler,
++			       struct user_namespace *mnt_userns,
+ 			       struct dentry *dentry, struct inode *inode,
+ 			       const char *name, const void *value, size_t size,
+ 			       int flags)
+@@ -124,8 +130,9 @@ static int ll_xattr_set_common(const struct xattr_handler *handler,
+ 
+ 	if ((handler->flags == XATTR_ACL_ACCESS_T ||
+ 	     handler->flags == XATTR_ACL_DEFAULT_T) &&
+-#ifdef HAVE_INODE_OWNER_OR_CAPABLE
+-	    !inode_owner_or_capable(inode))
++/* Test for older kernels that was cleaned up in LU-12477 and LU-10092 */
++#if defined(HAVE_USER_NAMESPACE_ARG) || defined(HAVE_INODE_OWNER_OR_CAPABLE)
++	    !inode_owner_or_capable(mnt_userns, inode))
+ #else
+ 	    !is_owner_or_cap(inode))
+ #endif
+@@ -305,7 +312,13 @@ static int ll_setstripe_ea(struct dentry *dentry, struct lov_user_md *lump,
+ 	return rc;
+ }
+ 
++#ifndef HAVE_USER_NAMESPACE_ARG
++#define ll_xattr_set(hd, ns, de, inode, name, value, size, flags) \
++	ll_xattr_set(hd, de, inode, name, value, size, flags)
++#endif
++
+ static int ll_xattr_set(const struct xattr_handler *handler,
++			struct user_namespace *mnt_userns,
+ 			struct dentry *dentry, struct inode *inode,
+ 			const char *name, const void *value, size_t size,
+ 			int flags)
+@@ -333,8 +346,8 @@ static int ll_xattr_set(const struct xattr_handler *handler,
+ 		return 0;
+ 	}
+ 
+-	return ll_xattr_set_common(handler, dentry, inode, name, value, size,
+-				   flags);
++    return ll_xattr_set_common(handler, mnt_userns, dentry, inode, name,
++    				   value, size, flags);
+ }
+ 
+ int ll_xattr_list(struct inode *inode, const char *name, int type, void *buffer,
+@@ -662,7 +675,8 @@ static int ll_xattr_set_4_3(const struct xattr_handler *handler,
+ 			    size, flags);
+ }
+ 
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ const struct xattr_handler *get_xattr_handler(int handler_flag)
+ {
+ 	int i = 0;
+@@ -708,7 +722,7 @@ static int ll_xattr_set_common_3_11(struct dentry *dentry, const char *name,
+ 	if (!handler)
+ 		return -ENXIO;
+ 
+-	return ll_xattr_set_common(handler, dentry, dentry->d_inode, name,
++	return ll_xattr_set_common(handler, NULL, dentry, dentry->d_inode, name,
+ 				   value, size, flags);
+ }
+ 
+@@ -721,7 +735,7 @@ static int ll_xattr_set_3_11(struct dentry *dentry, const char *name,
+ 	if (!handler)
+ 		return -ENXIO;
+ 
+-	return ll_xattr_set(handler, dentry, dentry->d_inode, name, value,
++	return ll_xattr_set(handler, NULL, dentry, dentry->d_inode, name, value,
+ 			    size, flags);
+ }
+ #endif
+@@ -732,7 +746,8 @@ static const struct xattr_handler ll_user_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_common_4_3,
+ 	.set = ll_xattr_set_common_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_common_3_11,
+ 	.set = ll_xattr_set_common_3_11,
+ #else
+@@ -747,7 +762,8 @@ static const struct xattr_handler ll_trusted_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_4_3,
+ 	.set = ll_xattr_set_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_3_11,
+ 	.set = ll_xattr_set_3_11,
+ #else
+@@ -762,7 +778,8 @@ static const struct xattr_handler ll_security_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_common_4_3,
+ 	.set = ll_xattr_set_common_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_common_3_11,
+ 	.set = ll_xattr_set_common_3_11,
+ #else
+@@ -781,7 +798,8 @@ static const struct xattr_handler ll_acl_access_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_common_4_3,
+ 	.set = ll_xattr_set_common_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_common_3_11,
+ 	.set = ll_xattr_set_common_3_11,
+ #else
+@@ -800,7 +818,8 @@ static const struct xattr_handler ll_acl_default_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_common_4_3,
+ 	.set = ll_xattr_set_common_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_common_3_11,
+ 	.set = ll_xattr_set_common_3_11,
+ #else
+@@ -815,7 +834,8 @@ static const struct xattr_handler ll_lustre_xattr_handler = {
+ #if defined(HAVE_XATTR_HANDLER_SIMPLIFIED)
+ 	.get = ll_xattr_get_4_3,
+ 	.set = ll_xattr_set_4_3,
+-#elif !defined(HAVE_XATTR_HANDLER_INODE_PARAM)
++#elif !defined(HAVE_USER_NAMESPACE_ARG) && \
++!defined(HAVE_XATTR_HANDLER_INODE_PARAM)
+ 	.get = ll_xattr_get_3_11,
+ 	.set = ll_xattr_set_3_11,
+ #else
+diff --git a/drivers/staging/lustrefsx/lustre/llite/xattr_security.c b/drivers/staging/lustrefsx/lustre/llite/xattr_security.c
+index 8f2e2e5cc1fa..d7e9ec8473ae 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/xattr_security.c
++++ b/drivers/staging/lustrefsx/lustre/llite/xattr_security.c
+@@ -124,8 +124,8 @@ ll_initxattrs(struct inode *inode, const struct xattr *xattr_array,
+ 			break;
+ 		}
+ 
+-		err = __vfs_setxattr(dentry, inode, full_name, xattr->value,
+-				     xattr->value_len, XATTR_CREATE);
++		err = ll_vfs_setxattr(dentry, inode, full_name, xattr->value,
++				      xattr->value_len, XATTR_CREATE);
+ 		kfree(full_name);
+ 		if (err < 0)
+ 			break;
+diff --git a/drivers/staging/lustrefsx/lustre/mgc/mgc_internal.h b/drivers/staging/lustrefsx/lustre/mgc/mgc_internal.h
+index 1a37720e901e..50b4b602e17e 100644
+--- a/drivers/staging/lustrefsx/lustre/mgc/mgc_internal.h
++++ b/drivers/staging/lustrefsx/lustre/mgc/mgc_internal.h
+@@ -47,24 +47,24 @@ int lprocfs_mgc_rd_ir_state(struct seq_file *m, void *data);
+ 
+ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld);
+ 
+-static inline int cld_is_sptlrpc(struct config_llog_data *cld)
++static inline bool cld_is_sptlrpc(struct config_llog_data *cld)
+ {
+-	return cld->cld_type == CONFIG_T_SPTLRPC;
++	return cld->cld_type == MGS_CFG_T_SPTLRPC;
+ }
+ 
+-static inline int cld_is_recover(struct config_llog_data *cld)
++static inline bool cld_is_recover(struct config_llog_data *cld)
+ {
+-	return cld->cld_type == CONFIG_T_RECOVER;
++	return cld->cld_type == MGS_CFG_T_RECOVER;
+ }
+ 
+-static inline int cld_is_nodemap(struct config_llog_data *cld)
++static inline bool cld_is_nodemap(struct config_llog_data *cld)
+ {
+-	return cld->cld_type == CONFIG_T_NODEMAP;
++	return cld->cld_type == MGS_CFG_T_NODEMAP;
+ }
+ 
+-static inline int cld_is_barrier(struct config_llog_data *cld)
++static inline bool cld_is_barrier(struct config_llog_data *cld)
+ {
+-	return cld->cld_type == CONFIG_T_BARRIER;
++	return cld->cld_type == MGS_CFG_T_BARRIER;
+ }
+ 
+ #endif  /* _MGC_INTERNAL_H */
+diff --git a/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c b/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
+index a2a2bdd1f073..2bd0f39dbed4 100644
+--- a/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
++++ b/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
+@@ -53,7 +53,7 @@
+ #include "mgc_internal.h"
+ 
+ static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
+-                          int type)
++			  enum mgs_cfg_type type)
+ {
+         __u64 resname = 0;
+ 
+@@ -72,14 +72,14 @@ static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
+         res_id->name[0] = cpu_to_le64(resname);
+         /* XXX: unfortunately, sptlprc and config llog share one lock */
+         switch(type) {
+-        case CONFIG_T_CONFIG:
+-        case CONFIG_T_SPTLRPC:
++	case MGS_CFG_T_CONFIG:
++	case MGS_CFG_T_SPTLRPC:
+                 resname = 0;
+                 break;
+-	case CONFIG_T_RECOVER:
+-	case CONFIG_T_PARAMS:
+-	case CONFIG_T_NODEMAP:
+-	case CONFIG_T_BARRIER:
++	case MGS_CFG_T_RECOVER:
++	case MGS_CFG_T_PARAMS:
++	case MGS_CFG_T_NODEMAP:
++	case MGS_CFG_T_BARRIER:
+ 		resname = type;
+ 		break;
+         default:
+@@ -91,7 +91,8 @@ static int mgc_name2resid(char *name, int len, struct ldlm_res_id *res_id,
+         return 0;
+ }
+ 
+-int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id, int type)
++int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id,
++		     enum mgs_cfg_type type)
+ {
+         /* fsname is at most 8 chars long, maybe contain "-".
+          * e.g. "lustre", "SUN-000" */
+@@ -99,7 +100,8 @@ int mgc_fsname2resid(char *fsname, struct ldlm_res_id *res_id, int type)
+ }
+ EXPORT_SYMBOL(mgc_fsname2resid);
+ 
+-int mgc_logname2resid(char *logname, struct ldlm_res_id *res_id, int type)
++int mgc_logname2resid(char *logname, struct ldlm_res_id *res_id,
++		      enum mgs_cfg_type type)
+ {
+ 	char *name_end;
+ 	int len;
+@@ -170,18 +172,18 @@ static
+ struct config_llog_data *config_log_find(char *logname,
+                                          struct config_llog_instance *cfg)
+ {
+-        struct config_llog_data *cld;
+-        struct config_llog_data *found = NULL;
+-        void *                   instance;
+-        ENTRY;
++	struct config_llog_data *cld;
++	struct config_llog_data *found = NULL;
++	unsigned long cfg_instance;
+ 
+-        LASSERT(logname != NULL);
++	ENTRY;
++	LASSERT(logname != NULL);
+ 
+-        instance = cfg ? cfg->cfg_instance : NULL;
++	cfg_instance = cfg ? cfg->cfg_instance : 0;
+ 	spin_lock(&config_list_lock);
+ 	list_for_each_entry(cld, &config_llog_list, cld_list_chain) {
+-		/* check if instance equals */
+-		if (instance != cld->cld_cfg.cfg_instance)
++		/* check if cfg_instance is the one we want */
++		if (cfg_instance != cld->cld_cfg.cfg_instance)
+ 			continue;
+ 
+ 		/* instance may be NULL, should check name */
+@@ -198,7 +200,7 @@ struct config_llog_data *config_log_find(char *logname,
+ static
+ struct config_llog_data *do_config_log_add(struct obd_device *obd,
+ 					   char *logname,
+-					   int type,
++					   enum mgs_cfg_type type,
+ 					   struct config_llog_instance *cfg,
+ 					   struct super_block *sb)
+ {
+@@ -207,8 +209,8 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
+ 
+ 	ENTRY;
+ 
+-	CDEBUG(D_MGC, "do adding config log %s:%p\n", logname,
+-	       cfg ? cfg->cfg_instance : NULL);
++	CDEBUG(D_MGC, "do adding config log %s-%016lx\n", logname,
++	       cfg ? cfg->cfg_instance : 0);
+ 
+ 	OBD_ALLOC(cld, sizeof(*cld) + strlen(logname) + 1);
+ 	if (!cld)
+@@ -253,47 +255,50 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
+ }
+ 
+ static struct config_llog_data *config_recover_log_add(struct obd_device *obd,
+-        char *fsname,
+-        struct config_llog_instance *cfg,
+-        struct super_block *sb)
++					char *fsname,
++					struct config_llog_instance *cfg,
++					struct super_block *sb)
+ {
+-        struct config_llog_instance lcfg = *cfg;
+-        struct lustre_sb_info *lsi = s2lsi(sb);
+-        struct config_llog_data *cld;
+-        char logname[32];
++	struct config_llog_instance lcfg = *cfg;
++	struct lustre_sb_info *lsi = s2lsi(sb);
++	struct config_llog_data *cld;
++	char logname[32];
+ 
+ 	if (IS_OST(lsi))
+-                return NULL;
++		return NULL;
+ 
+ 	/* for osp-on-ost, see lustre_start_osp() */
+ 	if (IS_MDT(lsi) && lcfg.cfg_instance)
+ 		return NULL;
+ 
+-        /* we have to use different llog for clients and mdts for cmd
+-         * where only clients are notified if one of cmd server restarts */
+-        LASSERT(strlen(fsname) < sizeof(logname) / 2);
+-        strcpy(logname, fsname);
++	/* We have to use different llog for clients and MDTs for DNE,
++	 * where only clients are notified if one of DNE server restarts.
++	 */
++	LASSERT(strlen(fsname) < sizeof(logname) / 2);
++	strncpy(logname, fsname, sizeof(logname));
+ 	if (IS_SERVER(lsi)) { /* mdt */
+-                LASSERT(lcfg.cfg_instance == NULL);
+-                lcfg.cfg_instance = sb;
+-                strcat(logname, "-mdtir");
+-        } else {
+-                LASSERT(lcfg.cfg_instance != NULL);
+-                strcat(logname, "-cliir");
+-        }
++		LASSERT(lcfg.cfg_instance == 0);
++		lcfg.cfg_instance = ll_get_cfg_instance(sb);
++		strncat(logname, "-mdtir", sizeof(logname));
++	} else {
++		LASSERT(lcfg.cfg_instance != 0);
++		strncat(logname, "-cliir", sizeof(logname));
++	}
+ 
+-        cld = do_config_log_add(obd, logname, CONFIG_T_RECOVER, &lcfg, sb);
+-        return cld;
++	cld = do_config_log_add(obd, logname, MGS_CFG_T_RECOVER, &lcfg, sb);
++	return cld;
+ }
+ 
+-static struct config_llog_data *config_log_find_or_add(struct obd_device *obd,
+-				char *logname, struct super_block *sb, int type,
+-				struct config_llog_instance *cfg)
++static struct config_llog_data *
++config_log_find_or_add(struct obd_device *obd, char *logname,
++		       struct super_block *sb, enum mgs_cfg_type type,
++		       struct config_llog_instance *cfg)
+ {
+-	struct config_llog_instance	lcfg = *cfg;
+-	struct config_llog_data		*cld;
++	struct config_llog_instance lcfg = *cfg;
++	struct config_llog_data *cld;
+ 
+-	lcfg.cfg_instance = sb != NULL ? (void *)sb : (void *)obd;
++	/* Note class_config_llog_handler() depends on getting "obd" back */
++	lcfg.cfg_instance = sb ? ll_get_cfg_instance(sb) : (unsigned long)obd;
+ 
+ 	cld = config_log_find(logname, &lcfg);
+ 	if (unlikely(cld != NULL))
+@@ -323,7 +328,8 @@ config_log_add(struct obd_device *obd, char *logname,
+ 	bool locked = false;
+ 	ENTRY;
+ 
+-	CDEBUG(D_MGC, "adding config log %s:%p\n", logname, cfg->cfg_instance);
++	CDEBUG(D_MGC, "add config log %s-%016lx\n", logname,
++	       cfg->cfg_instance);
+ 
+ 	/*
+ 	 * for each regular log, the depended sptlrpc log name is
+@@ -340,7 +346,7 @@ config_log_add(struct obd_device *obd, char *logname,
+ 
+ 	if (cfg->cfg_sub_clds & CONFIG_SUB_SPTLRPC) {
+ 		sptlrpc_cld = config_log_find_or_add(obd, seclogname, NULL,
+-						     CONFIG_T_SPTLRPC, cfg);
++						     MGS_CFG_T_SPTLRPC, cfg);
+ 		if (IS_ERR(sptlrpc_cld)) {
+ 			CERROR("%s: can't create sptlrpc log %s: rc = %ld\n",
+ 			       obd->obd_name, seclogname, PTR_ERR(sptlrpc_cld));
+@@ -350,7 +356,7 @@ config_log_add(struct obd_device *obd, char *logname,
+ 
+ 	if (!IS_MGS(lsi) && cfg->cfg_sub_clds & CONFIG_SUB_NODEMAP) {
+ 		nodemap_cld = config_log_find_or_add(obd, LUSTRE_NODEMAP_NAME,
+-						     NULL, CONFIG_T_NODEMAP,
++						     NULL, MGS_CFG_T_NODEMAP,
+ 						     cfg);
+ 		if (IS_ERR(nodemap_cld)) {
+ 			rc = PTR_ERR(nodemap_cld);
+@@ -362,7 +368,7 @@ config_log_add(struct obd_device *obd, char *logname,
+ 
+ 	if (cfg->cfg_sub_clds & CONFIG_SUB_PARAMS) {
+ 		params_cld = config_log_find_or_add(obd, PARAMS_FILENAME, sb,
+-						    CONFIG_T_PARAMS, cfg);
++						    MGS_CFG_T_PARAMS, cfg);
+ 		if (IS_ERR(params_cld)) {
+ 			rc = PTR_ERR(params_cld);
+ 			CERROR("%s: can't create params log: rc = %d\n",
+@@ -375,7 +381,7 @@ config_log_add(struct obd_device *obd, char *logname,
+ 		snprintf(seclogname + (ptr - logname), sizeof(seclogname) - 1,
+ 			 "-%s", BARRIER_FILENAME);
+ 		barrier_cld = config_log_find_or_add(obd, seclogname, sb,
+-						     CONFIG_T_BARRIER, cfg);
++						     MGS_CFG_T_BARRIER, cfg);
+ 		if (IS_ERR(barrier_cld)) {
+ 			rc = PTR_ERR(barrier_cld);
+ 			CERROR("%s: can't create barrier log: rc = %d\n",
+@@ -384,7 +390,7 @@ config_log_add(struct obd_device *obd, char *logname,
+ 		}
+ 	}
+ 
+-	cld = do_config_log_add(obd, logname, CONFIG_T_CONFIG, cfg, sb);
++	cld = do_config_log_add(obd, logname, MGS_CFG_T_CONFIG, cfg, sb);
+ 	if (IS_ERR(cld)) {
+ 		rc = PTR_ERR(cld);
+ 		CERROR("%s: can't create log: rc = %d\n",
+@@ -1404,34 +1410,34 @@ static int mgc_apply_recover_logs(struct obd_device *mgc,
+ 				  __u64 max_version,
+ 				  void *data, int datalen, bool mne_swab)
+ {
+-        struct config_llog_instance *cfg = &cld->cld_cfg;
+-        struct lustre_sb_info       *lsi = s2lsi(cfg->cfg_sb);
+-        struct mgs_nidtbl_entry *entry;
+-        struct lustre_cfg       *lcfg;
+-        struct lustre_cfg_bufs   bufs;
+-        u64   prev_version = 0;
+-        char *inst;
+-        char *buf;
+-        int   bufsz;
+-        int   pos;
+-        int   rc  = 0;
+-        int   off = 0;
+-        ENTRY;
++	struct config_llog_instance *cfg = &cld->cld_cfg;
++	struct lustre_sb_info *lsi = s2lsi(cfg->cfg_sb);
++	struct mgs_nidtbl_entry *entry;
++	struct lustre_cfg *lcfg;
++	struct lustre_cfg_bufs bufs;
++	u64 prev_version = 0;
++	char *inst;
++	char *buf;
++	int bufsz;
++	int pos;
++	int rc  = 0;
++	int off = 0;
+ 
+-        LASSERT(cfg->cfg_instance != NULL);
+-        LASSERT(cfg->cfg_sb == cfg->cfg_instance);
++	ENTRY;
++	LASSERT(cfg->cfg_instance != 0);
++	LASSERT(ll_get_cfg_instance(cfg->cfg_sb) == cfg->cfg_instance);
+ 
+ 	OBD_ALLOC(inst, PAGE_SIZE);
+ 	if (inst == NULL)
+ 		RETURN(-ENOMEM);
+ 
+ 	if (!IS_SERVER(lsi)) {
+-		pos = snprintf(inst, PAGE_SIZE, "%p", cfg->cfg_instance);
++		pos = snprintf(inst, PAGE_SIZE, "%016lx", cfg->cfg_instance);
+ 		if (pos >= PAGE_SIZE) {
+ 			OBD_FREE(inst, PAGE_SIZE);
+ 			return -E2BIG;
+ 		}
+-        } else {
++	} else {
+ 		LASSERT(IS_MDT(lsi));
+ 		rc = server_name2svname(lsi->lsi_svname, inst, NULL,
+ 					PAGE_SIZE);
+@@ -2062,12 +2068,12 @@ int mgc_process_log(struct obd_device *mgc, struct config_llog_data *cld)
+ 	mutex_lock(&cld->cld_lock);
+ 	if (cld->cld_stopping) {
+ 		mutex_unlock(&cld->cld_lock);
+-                RETURN(0);
+-        }
++		RETURN(0);
++	}
+ 
+-        OBD_FAIL_TIMEOUT(OBD_FAIL_MGC_PAUSE_PROCESS_LOG, 20);
++	OBD_FAIL_TIMEOUT(OBD_FAIL_MGC_PAUSE_PROCESS_LOG, 20);
+ 
+-	CDEBUG(D_MGC, "Process log %s:%p from %d\n", cld->cld_logname,
++	CDEBUG(D_MGC, "Process log %s-%016lx from %d\n", cld->cld_logname,
+ 	       cld->cld_cfg.cfg_instance, cld->cld_cfg.cfg_last_idx + 1);
+ 
+ 	/* Get the cfg lock on the llog */
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+index 924322ef86e8..9f5fffd48bd6 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+@@ -869,7 +869,7 @@ static int class_del_conn(struct obd_device *obd, struct lustre_cfg *lcfg)
+ static LIST_HEAD(lustre_profile_list);
+ static DEFINE_SPINLOCK(lustre_profile_list_lock);
+ 
+-struct lustre_profile *class_get_profile(const char * prof)
++struct lustre_profile *class_get_profile(const char *prof)
+ {
+ 	struct lustre_profile *lprof;
+ 
+@@ -1546,8 +1546,7 @@ int class_config_llog_handler(const struct lu_env *env,
+ 		if (!(cfg->cfg_flags & CFG_F_COMPAT146) &&
+ 		    !(cfg->cfg_flags & CFG_F_MARKER) &&
+ 		    (lcfg->lcfg_command != LCFG_MARKER)) {
+-			CWARN("Config not inside markers, ignoring! "
+-			      "(inst: %p, uuid: %s, flags: %#x)\n",
++			CWARN("Skip config outside markers, (inst: %016lx, uuid: %s, flags: %#x)\n",
+ 				cfg->cfg_instance,
+ 				cfg->cfg_uuid.uuid, cfg->cfg_flags);
+ 			cfg->cfg_flags |= CFG_F_SKIP;
+@@ -1623,12 +1622,11 @@ int class_config_llog_handler(const struct lu_env *env,
+ 		if (cfg->cfg_instance &&
+ 		    lcfg->lcfg_command != LCFG_SPTLRPC_CONF &&
+ 		    LUSTRE_CFG_BUFLEN(lcfg, 0) > 0) {
+-			inst_len = LUSTRE_CFG_BUFLEN(lcfg, 0) +
+-				   sizeof(cfg->cfg_instance) * 2 + 4;
++			inst_len = LUSTRE_CFG_BUFLEN(lcfg, 0) + 16 + 4;
+ 			OBD_ALLOC(inst_name, inst_len);
+ 			if (inst_name == NULL)
+ 				GOTO(out, rc = -ENOMEM);
+-			snprintf(inst_name, inst_len, "%s-%p",
++			snprintf(inst_name, inst_len, "%s-%016lx",
+ 				lustre_cfg_string(lcfg, 0),
+ 				cfg->cfg_instance);
+ 			lustre_cfg_bufs_set_string(&bufs, 0, inst_name);
+@@ -1636,23 +1634,22 @@ int class_config_llog_handler(const struct lu_env *env,
+ 			       lcfg->lcfg_command, inst_name);
+ 		}
+ 
+-                /* we override the llog's uuid for clients, to insure they
+-                are unique */
+-		if (cfg->cfg_instance != NULL &&
+-		    lcfg->lcfg_command == LCFG_ATTACH) {
++		/* override llog UUID for clients, to insure they are unique */
++		if (cfg->cfg_instance && lcfg->lcfg_command == LCFG_ATTACH)
+ 			lustre_cfg_bufs_set_string(&bufs, 2,
+ 						   cfg->cfg_uuid.uuid);
+-		}
+-                /*
+-                 * sptlrpc config record, we expect 2 data segments:
+-                 *  [0]: fs_name/target_name,
+-                 *  [1]: rule string
+-                 * moving them to index [1] and [2], and insert MGC's
+-                 * obdname at index [0].
+-                 */
++		/*
++		 * sptlrpc config record, we expect 2 data segments:
++		 *  [0]: fs_name/target_name,
++		 *  [1]: rule string
++		 * moving them to index [1] and [2], and insert MGC's
++		 * obdname at index [0].
++		 */
+ 		if (cfg->cfg_instance &&
+ 		    lcfg->lcfg_command == LCFG_SPTLRPC_CONF) {
+-			struct obd_device *obd = cfg->cfg_instance;
++			/* After ASLR changes cfg_instance this needs fixing */
++			/* "obd" is set in config_log_find_or_add() */
++			struct obd_device *obd = (void *)cfg->cfg_instance;
+ 
+ 			lustre_cfg_bufs_set(&bufs, 2, bufs.lcfg_buf[1],
+ 					    bufs.lcfg_buflen[1]);
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
+index b1f59d8f6b30..6bec75198e19 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
+@@ -939,7 +939,7 @@ static int lustre_disconnect_lwp(struct super_block *sb)
+ 			GOTO(out, rc = -ENOMEM);
+ 
+ 		/* end log first */
+-		cfg->cfg_instance = sb;
++		cfg->cfg_instance = ll_get_cfg_instance(sb);
+ 		rc = lustre_end_log(sb, logname, cfg);
+ 		if (rc != 0 && rc != -ENOENT)
+ 			GOTO(out, rc);
+@@ -1051,7 +1051,7 @@ static int lustre_start_lwp(struct super_block *sb)
+ 		GOTO(out, rc = -ENOMEM);
+ 
+ 	cfg->cfg_callback = client_lwp_config_process;
+-	cfg->cfg_instance = sb;
++	cfg->cfg_instance = ll_get_cfg_instance(sb);
+ 	rc = lustre_process_log(sb, logname, cfg);
+ 	/* need to remove config llog from mgc */
+ 	lsi->lsi_lwp_started = 1;
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/wiretest.c b/drivers/staging/lustrefsx/lustre/ptlrpc/wiretest.c
+index 94828872d70a..3fdaf4e78ff6 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/wiretest.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/wiretest.c
+@@ -4164,12 +4164,12 @@ void lustre_assert_wire_constants(void)
+ 		 (long long)(int)offsetof(struct mgs_config_body, mcb_units));
+ 	LASSERTF((int)sizeof(((struct mgs_config_body *)0)->mcb_units) == 4, "found %lld\n",
+ 		 (long long)(int)sizeof(((struct mgs_config_body *)0)->mcb_units));
+-	CLASSERT(CONFIG_T_CONFIG == 0);
+-	CLASSERT(CONFIG_T_SPTLRPC == 1);
+-	CLASSERT(CONFIG_T_RECOVER == 2);
+-	CLASSERT(CONFIG_T_PARAMS == 3);
+-	CLASSERT(CONFIG_T_NODEMAP == 4);
+-	CLASSERT(CONFIG_T_BARRIER == 5);
++	CLASSERT(MGS_CFG_T_CONFIG == 0);
++	CLASSERT(MGS_CFG_T_SPTLRPC == 1);
++	CLASSERT(MGS_CFG_T_RECOVER == 2);
++	CLASSERT(MGS_CFG_T_PARAMS == 3);
++	CLASSERT(MGS_CFG_T_NODEMAP == 4);
++	CLASSERT(MGS_CFG_T_BARRIER == 5);
+ 
+ 	/* Checks for struct mgs_config_res */
+ 	LASSERTF((int)sizeof(struct mgs_config_res) == 16, "found %lld\n",
+diff --git a/drivers/staging/lustrefsx/undef.h b/drivers/staging/lustrefsx/undef.h
+index aa1343bf5a36..4d27f6dfa46f 100644
+--- a/drivers/staging/lustrefsx/undef.h
++++ b/drivers/staging/lustrefsx/undef.h
+@@ -890,6 +890,9 @@
+ /* Define to 1 if you have the <unistd.h> header file. */
+ #undef HAVE_UNISTD_H
+ 
++/* 'inode_operations' members have user namespace argument */
++#undef HAVE_USER_NAMESPACE_ARG
++
+ /* kernel has vfs_rename with 5 args */
+ #undef HAVE_VFS_RENAME_5ARGS
+ 
+-- 
+2.32.0
+

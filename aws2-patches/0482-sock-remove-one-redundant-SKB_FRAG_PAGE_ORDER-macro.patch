@@ -1,0 +1,50 @@
+From f298ae5fd9d18bba04ec470aae65e2357769f938 Mon Sep 17 00:00:00 2001
+From: Yunsheng Lin <linyunsheng@huawei.com>
+Date: Thu, 26 Aug 2021 10:49:47 +0800
+Subject: sock: remove one redundant SKB_FRAG_PAGE_ORDER macro
+
+[ Upstream commit 723783d077e39c256a1fafebbd97cbb14207c28f ]
+
+Both SKB_FRAG_PAGE_ORDER are defined to the same value in
+net/core/sock.c and drivers/vhost/net.c.
+
+Move the SKB_FRAG_PAGE_ORDER definition to net/core/sock.h,
+as both net/core/sock.c and drivers/vhost/net.c include it,
+and it seems a reasonable file to put the macro.
+
+Signed-off-by: Yunsheng Lin <linyunsheng@huawei.com>
+Acked-by: Jason Wang <jasowang@redhat.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+---
+ drivers/vhost/net.c | 2 --
+ net/core/sock.c     | 1 -
+ 2 files changed, 3 deletions(-)
+
+diff --git a/drivers/vhost/net.c b/drivers/vhost/net.c
+index 5beb20768b20..a5731e40d340 100644
+--- a/drivers/vhost/net.c
++++ b/drivers/vhost/net.c
+@@ -652,8 +652,6 @@ static bool tx_can_batch(struct vhost_virtqueue *vq, size_t total_len)
+ 	       !vhost_vq_avail_empty(vq->dev, vq);
+ }
+ 
+-#define SKB_FRAG_PAGE_ORDER     get_order(32768)
+-
+ static bool vhost_net_page_frag_refill(struct vhost_net *net, unsigned int sz,
+ 				       struct page_frag *pfrag, gfp_t gfp)
+ {
+diff --git a/net/core/sock.c b/net/core/sock.c
+index 1bb6a003323b..4c2266950bc2 100644
+--- a/net/core/sock.c
++++ b/net/core/sock.c
+@@ -2447,7 +2447,6 @@ static void sk_leave_memory_pressure(struct sock *sk)
+ 	}
+ }
+ 
+-#define SKB_FRAG_PAGE_ORDER	get_order(32768)
+ DEFINE_STATIC_KEY_FALSE(net_high_order_alloc_disable_key);
+ 
+ /**
+-- 
+2.32.0
+

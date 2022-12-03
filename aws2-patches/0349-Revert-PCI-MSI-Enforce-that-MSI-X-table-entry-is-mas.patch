@@ -1,0 +1,52 @@
+From bbe11de074d3e857f06f5f1d7f7cd9ea6846cab9 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Thu, 23 Dec 2021 19:28:09 +0000
+Subject: Revert "PCI/MSI: Enforce that MSI-X table entry is masked for update"
+
+This reverts commit 0b2509d7a90c11666280acf9ada4add767c2b819.
+
+This commit, while looking perfectly correct, causes problems
+with interrupts on ec2 nvme devices. So, revert it for now.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/pci/msi.c | 15 ---------------
+ 1 file changed, 15 deletions(-)
+
+diff --git a/drivers/pci/msi.c b/drivers/pci/msi.c
+index 3da69b26e674..cc0683b9312f 100644
+--- a/drivers/pci/msi.c
++++ b/drivers/pci/msi.c
+@@ -318,29 +318,14 @@ void __pci_write_msi_msg(struct msi_desc *entry, struct msi_msg *msg)
+ 		/* Don't touch the hardware now */
+ 	} else if (entry->msi_attrib.is_msix) {
+ 		void __iomem *base = pci_msix_desc_addr(entry);
+-		bool unmasked = !(entry->masked & PCI_MSIX_ENTRY_CTRL_MASKBIT);
+ 
+ 		if (!base)
+ 			goto skip;
+ 
+-		/*
+-		 * The specification mandates that the entry is masked
+-		 * when the message is modified:
+-		 *
+-		 * "If software changes the Address or Data value of an
+-		 * entry while the entry is unmasked, the result is
+-		 * undefined."
+-		 */
+-		if (unmasked)
+-			__pci_msix_desc_mask_irq(entry, PCI_MSIX_ENTRY_CTRL_MASKBIT);
+-
+ 		writel(msg->address_lo, base + PCI_MSIX_ENTRY_LOWER_ADDR);
+ 		writel(msg->address_hi, base + PCI_MSIX_ENTRY_UPPER_ADDR);
+ 		writel(msg->data, base + PCI_MSIX_ENTRY_DATA);
+ 
+-		if (unmasked)
+-			__pci_msix_desc_mask_irq(entry, 0);
+-
+ 		/* Ensure that the writes are visible in the device */
+ 		readl(base + PCI_MSIX_ENTRY_DATA);
+ 	} else {
+-- 
+2.32.0
+

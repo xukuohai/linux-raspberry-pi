@@ -1,0 +1,112 @@
+From 1f392bcc97f937cc4d0406ee950c130649044d2f Mon Sep 17 00:00:00 2001
+From: Florent Revest <revest@chromium.org>
+Date: Wed, 10 Feb 2021 12:14:03 +0100
+Subject: bpf: Expose bpf_get_socket_cookie to tracing programs
+
+This needs a new helper that:
+- can work in a sleepable context (using sock_gen_cookie)
+- takes a struct sock pointer and checks that it's not NULL
+
+Signed-off-by: Florent Revest <revest@chromium.org>
+Signed-off-by: Alexei Starovoitov <ast@kernel.org>
+Acked-by: KP Singh <kpsingh@kernel.org>
+Acked-by: Andrii Nakryiko <andrii@kernel.org>
+Link: https://lore.kernel.org/bpf/20210210111406.785541-2-revest@chromium.org
+(cherry picked from commit c5dbb89fc2ac013afe67b9e4fcb3743c02b567cd)
+---
+ include/linux/bpf.h            |  1 +
+ include/uapi/linux/bpf.h       |  8 ++++++++
+ kernel/trace/bpf_trace.c       |  2 ++
+ net/core/filter.c              | 12 ++++++++++++
+ tools/include/uapi/linux/bpf.h |  8 ++++++++
+ 5 files changed, 31 insertions(+)
+
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index b010d45a1ecd..791e936fc597 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -1899,6 +1899,7 @@ extern const struct bpf_func_proto bpf_copy_from_user_proto;
+ extern const struct bpf_func_proto bpf_snprintf_btf_proto;
+ extern const struct bpf_func_proto bpf_per_cpu_ptr_proto;
+ extern const struct bpf_func_proto bpf_this_cpu_ptr_proto;
++extern const struct bpf_func_proto bpf_get_socket_ptr_cookie_proto;
+ 
+ const struct bpf_func_proto *bpf_tracing_func_proto(
+ 	enum bpf_func_id func_id, const struct bpf_prog *prog);
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 2a234023821e..0e3582d59c7b 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -1661,6 +1661,14 @@ union bpf_attr {
+  * 	Return
+  * 		A 8-byte long non-decreasing number.
+  *
++ * u64 bpf_get_socket_cookie(struct sock *sk)
++ * 	Description
++ * 		Equivalent to **bpf_get_socket_cookie**\ () helper that accepts
++ * 		*sk*, but gets socket from a BTF **struct sock**. This helper
++ * 		also works for sleepable programs.
++ * 	Return
++ * 		A 8-byte long unique number or 0 if *sk* is NULL.
++ *
+  * u32 bpf_get_socket_uid(struct sk_buff *skb)
+  * 	Return
+  * 		The owner UID of the socket associated to *skb*. If the socket
+diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
+index a9e074769881..c532f644ece7 100644
+--- a/kernel/trace/bpf_trace.c
++++ b/kernel/trace/bpf_trace.c
+@@ -1715,6 +1715,8 @@ tracing_prog_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+ 		return &bpf_skc_to_tcp_request_sock_proto;
+ 	case BPF_FUNC_skc_to_udp6_sock:
+ 		return &bpf_skc_to_udp6_sock_proto;
++	case BPF_FUNC_get_socket_cookie:
++		return &bpf_get_socket_ptr_cookie_proto;
+ #endif
+ 	case BPF_FUNC_seq_printf:
+ 		return prog->expected_attach_type == BPF_TRACE_ITER ?
+diff --git a/net/core/filter.c b/net/core/filter.c
+index 4c22e6d1da74..f2283508d807 100644
+--- a/net/core/filter.c
++++ b/net/core/filter.c
+@@ -4628,6 +4628,18 @@ static const struct bpf_func_proto bpf_get_socket_cookie_sock_proto = {
+ 	.arg1_type	= ARG_PTR_TO_CTX,
+ };
+ 
++BPF_CALL_1(bpf_get_socket_ptr_cookie, struct sock *, sk)
++{
++	return sk ? sock_gen_cookie(sk) : 0;
++}
++
++const struct bpf_func_proto bpf_get_socket_ptr_cookie_proto = {
++	.func		= bpf_get_socket_ptr_cookie,
++	.gpl_only	= false,
++	.ret_type	= RET_INTEGER,
++	.arg1_type	= ARG_PTR_TO_BTF_ID_SOCK_COMMON,
++};
++
+ BPF_CALL_1(bpf_get_socket_cookie_sock_ops, struct bpf_sock_ops_kern *, ctx)
+ {
+ 	return __sock_gen_cookie(ctx->sk);
+diff --git a/tools/include/uapi/linux/bpf.h b/tools/include/uapi/linux/bpf.h
+index 7943e748916d..d07ceba1b6b5 100644
+--- a/tools/include/uapi/linux/bpf.h
++++ b/tools/include/uapi/linux/bpf.h
+@@ -1661,6 +1661,14 @@ union bpf_attr {
+  * 	Return
+  * 		A 8-byte long non-decreasing number.
+  *
++ * u64 bpf_get_socket_cookie(struct sock *sk)
++ * 	Description
++ * 		Equivalent to **bpf_get_socket_cookie**\ () helper that accepts
++ * 		*sk*, but gets socket from a BTF **struct sock**. This helper
++ * 		also works for sleepable programs.
++ * 	Return
++ * 		A 8-byte long unique number or 0 if *sk* is NULL.
++ *
+  * u32 bpf_get_socket_uid(struct sk_buff *skb)
+  * 	Return
+  * 		The owner UID of the socket associated to *skb*. If the socket
+-- 
+2.32.0
+

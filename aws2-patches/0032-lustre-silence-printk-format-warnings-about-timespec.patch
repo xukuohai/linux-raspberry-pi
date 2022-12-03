@@ -1,0 +1,51 @@
+From c824ae5065ff436b481d48f47992389ed7abfbbe Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Thu, 7 Mar 2019 17:53:19 +0000
+Subject: lustre: silence printk format warnings about timespec.tv_sec
+
+tv_sec may be defined as long or long long depending on timespec64
+availability and depending on whether this is a 64bit kernel or not.
+
+This leads to printk format warnings. Silence them by always casting
+the value to unsigned long - the value we're printing here is not
+larger than 32 bits in any case.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/libcfs/libcfs/watchdog.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/watchdog.c b/drivers/staging/lustrefsx/libcfs/libcfs/watchdog.c
+index 359ca943e95d..e432d86aae0a 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/watchdog.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/watchdog.c
+@@ -174,7 +174,7 @@ static void lcw_dump_stack(struct lc_watchdog *lcw)
+ 	    lcw_recent_watchdog_count > 3) {
+ 		LCONSOLE_WARN("Service thread pid %u was inactive for %lu.%.02lus. Watchdog stack traces are limited to 3 per %d seconds, skipping this one.\n",
+ 			      (int)lcw->lcw_pid,
+-			      timediff.tv_sec,
++			      (unsigned long)timediff.tv_sec,
+ 			      timediff.tv_nsec / (NSEC_PER_SEC / 100),
+ 			      libcfs_watchdog_ratelimit);
+ 	} else {
+@@ -188,7 +188,7 @@ static void lcw_dump_stack(struct lc_watchdog *lcw)
+ 
+ 		LCONSOLE_WARN("Service thread pid %u was inactive for %lu.%.02lus. The thread might be hung, or it might only be slow and will resume later. Dumping the stack trace for debugging purposes:\n",
+ 			      (int)lcw->lcw_pid,
+-			      timediff.tv_sec,
++			      (unsigned long)timediff.tv_sec,
+ 			      timediff.tv_nsec / (NSEC_PER_SEC / 100));
+ 		lcw_dump(lcw);
+ 	}
+@@ -388,7 +388,7 @@ static void lcw_update_time(struct lc_watchdog *lcw, const char *message)
+ 		timediff = ktime_to_timespec64(lapse);
+ 		LCONSOLE_WARN("Service thread pid %u %s after %lu.%.02lus. This indicates the system was overloaded (too many service threads, or there were not enough hardware resources).\n",
+ 			      lcw->lcw_pid, message,
+-			      timediff.tv_sec,
++			      (unsigned long)timediff.tv_sec,
+ 			      timediff.tv_nsec / (NSEC_PER_SEC / 100));
+ 	}
+ 	lcw->lcw_last_touched = newtime;
+-- 
+2.32.0
+

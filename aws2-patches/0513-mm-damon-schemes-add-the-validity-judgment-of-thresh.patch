@@ -1,0 +1,47 @@
+From ee57d392787e939f17c1a115020cad6fdccf937a Mon Sep 17 00:00:00 2001
+From: Xin Hao <xhao@linux.alibaba.com>
+Date: Fri, 14 Jan 2022 14:09:50 -0800
+Subject: mm/damon/schemes: add the validity judgment of thresholds
+
+In dbgfs "schemes" interface, i do some test like this:
+    # cd /sys/kernel/debug/damon
+    # echo "2 1 2 1 10 1 3 10 1 1 1 1 1 1 1 1 2 3" > schemes
+    # cat schemes
+    # 2 1 2 1 10 1 3 10 1 1 1 1 1 1 1 1 2 3 0 0
+
+There have some unreasonable places, i set the valules of these variables
+"<min_sz, max_sz> <min_nr_a, max_nr_a>, <min_age, max_age>, <wmarks.high,
+wmarks.mid, wmarks.low>" as "<2, 1>, <2, 1>, <10, 1>, <1, 2, 3>.
+
+So there add a validity judgment for these thresholds value.
+
+Link: https://lkml.kernel.org/r/d78360e52158d786fcbf20bc62c96785742e76d3.1637239568.git.xhao@linux.alibaba.com
+Signed-off-by: Xin Hao <xhao@linux.alibaba.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/dbgfs.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/mm/damon/dbgfs.c b/mm/damon/dbgfs.c
+index ad65436756af..bf36a2756cfb 100644
+--- a/mm/damon/dbgfs.c
++++ b/mm/damon/dbgfs.c
+@@ -213,6 +213,13 @@ static struct damos **str_to_schemes(const char *str, ssize_t len,
+ 		if (!damos_action_valid(action))
+ 			goto fail;
+ 
++		if (min_sz > max_sz || min_nr_a > max_nr_a || min_age > max_age)
++			goto fail;
++
++		if (wmarks.high < wmarks.mid || wmarks.high < wmarks.low ||
++		    wmarks.mid <  wmarks.low)
++			goto fail;
++
+ 		pos += parsed;
+ 		scheme = damon_new_scheme(min_sz, max_sz, min_nr_a, max_nr_a,
+ 				min_age, max_age, action, &quota, &wmarks);
+-- 
+2.32.0
+

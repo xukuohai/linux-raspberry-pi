@@ -1,0 +1,33 @@
+From ef9c059451aa72c6d10205cd163e8c0443018631 Mon Sep 17 00:00:00 2001
+From: Geert Uytterhoeven <geert@linux-m68k.org>
+Date: Tue, 5 Oct 2021 23:01:19 -0400
+Subject: mm/damon: grammar s/works/work/
+
+Correct a singular versus plural grammar mistake in the help text for the
+DAMON_VADDR config symbol.
+
+Link: https://lkml.kernel.org/r/20210914073451.3883834-1-geert@linux-m68k.org
+Fixes: 3f49584b262cf8f4 ("mm/damon: implement primitives for the virtual memory address spaces")
+Signed-off-by: Geert Uytterhoeven <geert@linux-m68k.org>
+Reviewed-by: SeongJae Park <sjpark@amazon.de>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/Kconfig | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/Kconfig b/mm/damon/Kconfig
+index c8e3dba6fb4c..1f02002bbab7 100644
+--- a/mm/damon/Kconfig
++++ b/mm/damon/Kconfig
+@@ -18,7 +18,7 @@ config DAMON_VADDR
+ 	select PAGE_IDLE_FLAG
+ 	help
+ 	  This builds the default data access monitoring primitives for DAMON
+-	  that works for virtual address spaces.
++	  that work for virtual address spaces.
+ 
+ config DAMON_DBGFS
+ 	bool "DAMON debugfs interface"
+-- 
+2.32.0
+

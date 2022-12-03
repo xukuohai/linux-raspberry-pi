@@ -1,0 +1,33 @@
+From d2a5c01d4d884809d399c23aae1066210c3ac65c Mon Sep 17 00:00:00 2001
+From: Nagendra S Tomar <natomar@microsoft.com>
+Date: Tue, 16 Mar 2021 10:25:14 +0000
+Subject: nfs: Subsequent READDIR calls should carry non-zero cookieverifier
+
+If the loop in nfs_readdir_xdr_to_array() runs more than once, subsequent
+READDIR RPCs may wrongly carry a zero cookie verifier and non-zero cookie.
+Make sure subsequent calls to READDIR carry the cookie verifier returned
+by the first call.
+
+Signed-off-by: Nagendra S Tomar <natomar@microsoft.com>
+Fixes: b593c09f83a2 ("NFS: Improve handling of directory verifiers")
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+---
+ fs/nfs/dir.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index 800ea6a74fff..bcf2ec2e1d14 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -865,6 +865,8 @@ static int nfs_readdir_xdr_to_array(struct nfs_readdir_descriptor *desc,
+ 			break;
+ 		}
+ 
++		verf_arg = verf_res;
++
+ 		status = nfs_readdir_page_filler(desc, entry, pages, pglen,
+ 						 arrays, narrays);
+ 	} while (!status && nfs_readdir_page_needs_filling(page));
+-- 
+2.32.0
+

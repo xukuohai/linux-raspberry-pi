@@ -1,0 +1,31 @@
+From 25f13983f99ca834e073ba7037d52b18e8b47d18 Mon Sep 17 00:00:00 2001
+From: Anchal Agarwal <anchalag@amazon.com>
+Date: Tue, 30 Mar 2021 14:49:39 +0000
+Subject: Revert "vmlinux.lds.h: Add PGO and AutoFDO input sections"
+
+This reverts commit eff8728fe69880d3f7983bec3fb6cea4c306261f.
+
+Signed-off-by: Anchal Agarwal <anchalag@amazon.com>
+---
+ include/asm-generic/vmlinux.lds.h | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/include/asm-generic/vmlinux.lds.h b/include/asm-generic/vmlinux.lds.h
+index a774361f28d4..b97fcbc62fa0 100644
+--- a/include/asm-generic/vmlinux.lds.h
++++ b/include/asm-generic/vmlinux.lds.h
+@@ -592,10 +592,7 @@
+  */
+ #define TEXT_TEXT							\
+ 		ALIGN_FUNCTION();					\
+-		*(.text.hot .text.hot.*)				\
+-		*(TEXT_MAIN .text.fixup)				\
+-		*(.text.unlikely .text.unlikely.*)			\
+-		*(.text.unknown .text.unknown.*)			\
++		*(.text.hot TEXT_MAIN .text.fixup .text.unlikely)	\
+ 		NOINSTR_TEXT						\
+ 		*(.text..refcount)					\
+ 		*(.ref.text)						\
+-- 
+2.32.0
+

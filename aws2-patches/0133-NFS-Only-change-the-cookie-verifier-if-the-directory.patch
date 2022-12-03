@@ -1,0 +1,40 @@
+From 6998e5d3ba248f2b44a1457387813b6a8546a43c Mon Sep 17 00:00:00 2001
+From: Trond Myklebust <trond.myklebust@hammerspace.com>
+Date: Wed, 17 Mar 2021 08:46:19 -0400
+Subject: NFS: Only change the cookie verifier if the directory page cache is
+ empty
+
+The cached NFSv3/v4 readdir cookies are associated with a verifier,
+which is checked by the server on subsequent calls to readdir, and is
+only expected to change when the cookies (and hence also the page cache
+contents) are considered invalid.
+We therefore do have to store the verifier, but only when the page cache
+is empty.
+
+Fixes: b593c09f83a2 ("NFS: Improve handling of directory verifiers")
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+---
+ fs/nfs/dir.c | 7 ++++++-
+ 1 file changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index 21c48c94b2d2..616add172053 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -928,7 +928,12 @@ static int find_and_lock_cache_page(struct nfs_readdir_descriptor *desc)
+ 			}
+ 			return res;
+ 		}
+-		memcpy(nfsi->cookieverf, verf, sizeof(nfsi->cookieverf));
++		/*
++		 * Set the cookie verifier if the page cache was empty
++		 */
++		if (desc->page_index == 0)
++			memcpy(nfsi->cookieverf, verf,
++			       sizeof(nfsi->cookieverf));
+ 	}
+ 	res = nfs_readdir_search_array(desc);
+ 	if (res == 0) {
+-- 
+2.32.0
+

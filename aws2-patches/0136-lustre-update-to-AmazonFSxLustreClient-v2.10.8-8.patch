@@ -1,0 +1,296 @@
+From f479589794b45fcbdae3c36ae861d461f53c4f02 Mon Sep 17 00:00:00 2001
+From: Shaoying Xu <shaoyi@amazon.com>
+Date: Tue, 27 Jul 2021 21:30:32 +0000
+Subject: lustre: update to AmazonFSxLustreClient v2.10.8-8
+
+Signed-off-by: Shaoying Xu <shaoyi@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h                  | 12 ++++++++++++
+ .../libcfs/include/libcfs/linux/linux-net.h         |  4 ++++
+ .../lustrefsx/lustre/include/lustre_compat.h        | 13 +++++++++++++
+ drivers/staging/lustrefsx/lustre/llite/lcommon_cl.c |  4 ++++
+ .../staging/lustrefsx/lustre/llite/llite_internal.h |  2 +-
+ drivers/staging/lustrefsx/lustre/llite/llite_lib.c  |  5 ++---
+ drivers/staging/lustrefsx/lustre/llite/llite_mmap.c | 13 +++++++++----
+ drivers/staging/lustrefsx/lustre/llite/namei.c      |  3 +--
+ drivers/staging/lustrefsx/lustre/llite/vvp_io.c     |  9 ++++++++-
+ drivers/staging/lustrefsx/lustre/lov/lov_io.c       |  4 +++-
+ drivers/staging/lustrefsx/undef.h                   | 12 ++++++++++++
+ 11 files changed, 69 insertions(+), 12 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index 2ecd0c99d380..cea872bd120d 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -735,6 +735,9 @@
+ /* security_inode_init_security takes a 'struct qstr' parameter */
+ /* #undef HAVE_SECURITY_IINITSEC_QSTR */
+ 
++/* security_release_secctx has 1 arg. */
++/* #undef HAVE_SEC_RELEASE_SECCTX_1ARG */
++
+ /* support for selinux */
+ #define HAVE_SELINUX 1
+ 
+@@ -847,6 +850,12 @@
+ /* tcp_sendpage use socket as first parameter */
+ /* #undef HAVE_TCP_SENDPAGE_USE_SOCKET */
+ 
++/* 'tcp_sock_set_keepidle()' exists */
++#define HAVE_TCP_SOCK_SET_KEEPIDLE 1
++
++/* 'tcp_sock_set_nodelay()' exists */
++#define HAVE_TCP_SOCK_SET_NODELAY 1
++
+ /* timer_setup has replaced setup_timer */
+ #define HAVE_TIMER_SETUP 1
+ 
+@@ -901,6 +910,9 @@
+ /* virtual_address has been replaced by address field */
+ #define HAVE_VM_FAULT_ADDRESS 1
+ 
++/* if VM_FAULT_RETRY is defined */
++#define HAVE_VM_FAULT_RETRY 1
++
+ /* if vm_fault_t type exists */
+ #define HAVE_VM_FAULT_T 1
+ 
+diff --git a/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-net.h b/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-net.h
+index 41484bd3b44a..98951f7a5d4b 100644
+--- a/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-net.h
++++ b/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-net.h
+@@ -35,6 +35,7 @@ static inline void tcp_sock_set_quickack(struct sock *sk, int opt)
+ 			  (char *)&opt, sizeof(opt));
+ }
+ 
++#if !defined(HAVE_TCP_SOCK_SET_NODELAY)
+ static inline void tcp_sock_set_nodelay(struct sock *sk)
+ {
+ 	int opt = 1;
+@@ -43,7 +44,9 @@ static inline void tcp_sock_set_nodelay(struct sock *sk)
+ 	kernel_setsockopt(sock, SOL_TCP, TCP_NODELAY,
+ 			  (char *)&opt, sizeof(opt));
+ }
++#endif /* HAVE_TCP_SOCK_SET_NODELAY */
+ 
++#if !defined(HAVE_TCP_SOCK_SET_KEEPIDLE)
+ static inline int tcp_sock_set_keepidle(struct sock *sk, int opt)
+ {
+ 	struct socket *sock = sk->sk_socket;
+@@ -51,6 +54,7 @@ static inline int tcp_sock_set_keepidle(struct sock *sk, int opt)
+ 	return kernel_setsockopt(sock, SOL_TCP, TCP_KEEPIDLE,
+ 				 (char *)&opt, sizeof(opt));
+ }
++#endif /* HAVE_TCP_SOCK_SET_KEEPIDLE */
+ 
+ static inline int tcp_sock_set_keepintvl(struct sock *sk, int opt)
+ {
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index 408efb8953cb..441f737170da 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -39,6 +39,7 @@
+ #include <linux/bio.h>
+ #include <linux/xattr.h>
+ #include <linux/slab.h>
++#include <linux/security.h>
+ 
+ #include <libcfs/libcfs.h>
+ #include <lustre_patchless_compat.h>
+@@ -710,4 +711,16 @@ static inline struct timespec current_time(struct inode *inode)
+ 	kmem_cache_create(name, size, align, flags, ctor)
+ #endif
+ 
++static inline void ll_security_release_secctx(char *secdata, u32 seclen)
++{
++#ifdef HAVE_SEC_RELEASE_SECCTX_1ARG
++	struct lsmcontext context = { };
++
++	lsmcontext_init(&context, secdata, seclen, 0);
++	return security_release_secctx(&context);
++#else
++	return security_release_secctx(secdata, seclen);
++#endif
++}
++
+ #endif /* _LUSTRE_COMPAT_H */
+diff --git a/drivers/staging/lustrefsx/lustre/llite/lcommon_cl.c b/drivers/staging/lustrefsx/lustre/llite/lcommon_cl.c
+index f6e429ba182c..a5fe1978c66a 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/lcommon_cl.c
++++ b/drivers/staging/lustrefsx/lustre/llite/lcommon_cl.c
+@@ -181,6 +181,10 @@ int cl_file_inode_init(struct inode *inode, struct lustre_md *md)
+ 		}
+ 	} else {
+ 		result = cl_conf_set(env, lli->lli_clob, &conf);
++		if (result == -EBUSY) {
++			/* ignore the error since I/O will handle it later */
++			result = 0;
++		}
+ 	}
+ 
+ 	if (result != 0)
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_internal.h b/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
+index 4acb7cdcf2af..ce05c17a2231 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_internal.h
+@@ -54,7 +54,7 @@
+ #define FMODE_EXEC 0
+ #endif
+ 
+-#ifndef VM_FAULT_RETRY
++#ifndef HAVE_VM_FAULT_RETRY
+ #define VM_FAULT_RETRY 0
+ #endif
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+index 297622d3d88f..644b1c4e26d4 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+@@ -46,7 +46,6 @@
+ #ifdef HAVE_UIDGID_HEADER
+ # include <linux/uidgid.h>
+ #endif
+-#include <linux/security.h>
+ 
+ #include <uapi/linux/lustre_ioctl.h>
+ #ifdef HAVE_UAPI_LINUX_MOUNT_H
+@@ -2530,8 +2529,8 @@ struct md_op_data *ll_prep_md_op_data(struct md_op_data *op_data,
+ 
+ void ll_finish_md_op_data(struct md_op_data *op_data)
+ {
+-	security_release_secctx(op_data->op_file_secctx,
+-				op_data->op_file_secctx_size);
++	ll_security_release_secctx(op_data->op_file_secctx,
++				   op_data->op_file_secctx_size);
+         OBD_FREE_PTR(op_data);
+ }
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+index 2c6c54f47af6..e286c559c1f6 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+@@ -268,19 +268,24 @@ static vm_fault_t ll_fault0(struct vm_area_struct *vma, struct vm_fault *vmf)
+ 	if (IS_ERR(env))
+ 		RETURN(PTR_ERR(env));
+ 
+-	if (fault_flag_allow_retry_first(vmf->flags) &&
+-	    ll_sbi_has_fast_read(ll_i2sbi(file_inode(vma->vm_file)))) {
++	if (ll_sbi_has_fast_read(ll_i2sbi(file_inode(vma->vm_file)))) {
+ 		/* do fast fault */
++		bool has_retry = vmf->flags & FAULT_FLAG_RETRY_NOWAIT;
++
++		/* To avoid loops, instruct downstream to not drop mmap_sem */
++		vmf->flags |= FAULT_FLAG_RETRY_NOWAIT;
+ 		ll_cl_add(vma->vm_file, env, NULL, LCC_MMAP);
+ 		fault_ret = ll_filemap_fault(vma, vmf);
+ 		ll_cl_remove(vma->vm_file, env);
++		if (!has_retry)
++			vmf->flags &= ~FAULT_FLAG_RETRY_NOWAIT;
+ 
+ 		/* - If there is no error, then the page was found in cache and
+ 		 *   uptodate;
+ 		 * - If VM_FAULT_RETRY is set, the page existed but failed to
+-		 *   lock. It will return to kernel and retry;
++		 *   lock. We will try slow path to avoid loops.
+ 		 * - Otherwise, it should try normal fault under DLM lock. */
+-		if ((fault_ret & VM_FAULT_RETRY) ||
++		if (!(fault_ret & VM_FAULT_RETRY) &&
+ 		    !(fault_ret & VM_FAULT_ERROR))
+ 			GOTO(out, result = 0);
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/llite/namei.c b/drivers/staging/lustrefsx/lustre/llite/namei.c
+index 622f9a44f407..ae7101b1885f 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/namei.c
++++ b/drivers/staging/lustrefsx/lustre/llite/namei.c
+@@ -36,7 +36,6 @@
+ #include <linux/quotaops.h>
+ #include <linux/highmem.h>
+ #include <linux/pagemap.h>
+-#include <linux/security.h>
+ #include <linux/user_namespace.h>
+ #ifdef HAVE_UIDGID_HEADER
+ # include <linux/uidgid.h>
+@@ -785,7 +784,7 @@ static int ll_atomic_open(struct inode *dir, struct dentry *dentry,
+ 		if (it_disposition(it, DISP_OPEN_CREATE)) {
+ 			/* Dentry instantiated in ll_create_it. */
+ 			rc = ll_create_it(dir, dentry, it, secctx, secctxlen);
+-			security_release_secctx(secctx, secctxlen);
++			ll_security_release_secctx(secctx, secctxlen);
+ 			if (rc) {
+ 				/* We dget in ll_splice_alias. */
+ 				if (de != NULL)
+diff --git a/drivers/staging/lustrefsx/lustre/llite/vvp_io.c b/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
+index a1280f9bff13..1bcadeb7cf0d 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
++++ b/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
+@@ -354,7 +354,14 @@ static void vvp_io_fini(const struct lu_env *env, const struct cl_io_slice *ios)
+ 				end = start + io->u.ci_rw.rw_range.cir_count;
+ 			}
+ 		} else if (cl_io_is_trunc(io)) {
+-			end = io->u.ci_setattr.sa_attr.lvb_size;
++			/* for writes, e_end is endpos, the location of the file
++			 * pointer after the write is completed, so it is not accessed.
++			 * For truncate, 'end' is the size, and *is* acccessed.
++			 * In other words, writes are [start, end), but truncate is
++			 * [start, size], where both are included.  So add 1 to the
++			 * size when creating the write intent to account for this.
++			 */
++			end = io->u.ci_setattr.sa_attr.lvb_size + 1;
+ 		} else { /* mkwrite */
+ 			pgoff_t index = io->u.ci_fault.ft_index;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/lov/lov_io.c b/drivers/staging/lustrefsx/lustre/lov/lov_io.c
+index f40dfa274c35..5544a9744b73 100644
+--- a/drivers/staging/lustrefsx/lustre/lov/lov_io.c
++++ b/drivers/staging/lustrefsx/lustre/lov/lov_io.c
+@@ -569,7 +569,9 @@ static int lov_io_setattr_iter_init(const struct lu_env *env,
+ 	ENTRY;
+ 
+ 	if (cl_io_is_trunc(io) && lio->lis_pos > 0) {
+-		index = lov_lsm_entry(lsm, lio->lis_pos - 1);
++		index = lov_lsm_entry(lsm, lio->lis_pos);
++		CDEBUG(D_VFSTRACE, "component[%d] flags %#x pos %llu\n",
++			index, lsm->lsm_entries[index]->lsme_flags, lio->lis_pos);
+ 		if (index > 0 && !lsm_entry_inited(lsm, index)) {
+ 			io->ci_need_write_intent = 1;
+ 			RETURN(io->ci_result = -ENODATA);
+diff --git a/drivers/staging/lustrefsx/undef.h b/drivers/staging/lustrefsx/undef.h
+index b1ea346eb8f4..aa1343bf5a36 100644
+--- a/drivers/staging/lustrefsx/undef.h
++++ b/drivers/staging/lustrefsx/undef.h
+@@ -733,6 +733,9 @@
+ /* security_inode_init_security takes a 'struct qstr' parameter */
+ #undef HAVE_SECURITY_IINITSEC_QSTR
+ 
++/* security_release_secctx has 1 arg. */
++#undef HAVE_SEC_RELEASE_SECCTX_1ARG
++
+ /* support for selinux */
+ #undef HAVE_SELINUX
+ 
+@@ -845,6 +848,12 @@
+ /* tcp_sendpage use socket as first parameter */
+ #undef HAVE_TCP_SENDPAGE_USE_SOCKET
+ 
++/* 'tcp_sock_set_keepidle()' exists */
++#undef HAVE_TCP_SOCK_SET_KEEPIDLE
++
++/* 'tcp_sock_set_nodelay()' exists */
++#undef HAVE_TCP_SOCK_SET_NODELAY
++
+ /* timer_setup has replaced setup_timer */
+ #undef HAVE_TIMER_SETUP
+ 
+@@ -899,6 +908,9 @@
+ /* virtual_address has been replaced by address field */
+ #undef HAVE_VM_FAULT_ADDRESS
+ 
++/* if VM_FAULT_RETRY is defined */
++#undef HAVE_VM_FAULT_RETRY
++
+ /* if vm_fault_t type exists */
+ #undef HAVE_VM_FAULT_T
+ 
+-- 
+2.32.0
+

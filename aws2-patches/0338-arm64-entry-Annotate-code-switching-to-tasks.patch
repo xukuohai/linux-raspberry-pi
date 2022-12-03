@@ -1,0 +1,36 @@
+From a268f17f81bcdb67afcaca5cc34e426720b4eab8 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 20 Jan 2021 14:37:48 +0100
+Subject: arm64: entry: Annotate code switching to tasks
+
+Whether returning to userland or creating a new task, sp is
+pointing to a pt_regs frame.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/entry.S | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index 098a0ecb1ca2..04e4d8a58b29 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -760,6 +760,7 @@ SYM_CODE_END(el0_error)
+  * "slow" syscall return path.
+  */
+ SYM_CODE_START_LOCAL(ret_to_user)
++	UNWIND_HINT_REGS
+ 	disable_daif
+ 	gic_prio_kentry_setup tmp=x3
+ #ifdef CONFIG_TRACE_IRQFLAGS
+@@ -1053,6 +1054,7 @@ NOKPROBE(cpu_switch_to)
+  * This is how we return from a fork.
+  */
+ SYM_CODE_START(ret_from_fork)
++	UNWIND_HINT_REGS
+ 	bl	schedule_tail
+ 	cbz	x19, 1f				// not a kernel thread
+ 	mov	x0, x20
+-- 
+2.32.0
+

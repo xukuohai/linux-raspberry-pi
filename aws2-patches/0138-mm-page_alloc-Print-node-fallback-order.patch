@@ -1,0 +1,35 @@
+From 8b72c6df69a2fdb8630ffa53d6f2b8b712704d8e Mon Sep 17 00:00:00 2001
+From: Bharata B Rao <bharata@amd.com>
+Date: Mon, 30 Aug 2021 17:46:02 +0530
+Subject: mm/page_alloc: Print node fallback order
+
+Print information message about the allocation fallback order
+for each NUMA node during boot.
+
+No functional changes here. This makes it easier to illustrate
+the problem in the node fallback list generation, which the
+next patch fixes.
+
+Signed-off-by: Bharata B Rao <bharata@amd.com>
+---
+ mm/page_alloc.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/mm/page_alloc.c b/mm/page_alloc.c
+index a56f2b9df5a0..70ed6fdafd25 100644
+--- a/mm/page_alloc.c
++++ b/mm/page_alloc.c
+@@ -5883,6 +5883,10 @@ static void build_zonelists(pg_data_t *pgdat)
+ 
+ 	build_zonelists_in_node_order(pgdat, node_order, nr_nodes);
+ 	build_thisnode_zonelists(pgdat);
++	pr_info("Fallback order for Node %d: ", local_node);
++	for (node = 0; node < nr_nodes; node++)
++		pr_cont("%d ", node_order[node]);
++	pr_cont("\n");
+ }
+ 
+ #ifdef CONFIG_HAVE_MEMORYLESS_NODES
+-- 
+2.32.0
+

@@ -1,0 +1,39 @@
+From 526189c69b7b8971949f967375d8adf3c2ef5873 Mon Sep 17 00:00:00 2001
+From: Andra Paraschiv <andraprs@amazon.com>
+Date: Fri, 27 Aug 2021 18:49:30 +0300
+Subject: nitro_enclaves: Add fixes for checkpatch blank line reports
+
+Remove blank lines that are not necessary, fixing the checkpatch script
+reports. While at it, add a blank line after the switch default block,
+similar to the other parts of the codebase.
+
+Signed-off-by: Andra Paraschiv <andraprs@amazon.com>
+---
+ samples/nitro_enclaves/ne_ioctl_sample.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/samples/nitro_enclaves/ne_ioctl_sample.c b/samples/nitro_enclaves/ne_ioctl_sample.c
+index 6a60990b2e20..765b131c7319 100644
+--- a/samples/nitro_enclaves/ne_ioctl_sample.c
++++ b/samples/nitro_enclaves/ne_ioctl_sample.c
+@@ -185,7 +185,6 @@ static int ne_create_vm(int ne_dev_fd, unsigned long *slot_uid, int *enclave_fd)
+ 	return 0;
+ }
+ 
+-
+ /**
+  * ne_poll_enclave_fd() - Thread function for polling the enclave fd.
+  * @data:	Argument provided for the polling function.
+@@ -560,8 +559,8 @@ static int ne_add_vcpu(int enclave_fd, unsigned int *vcpu_id)
+ 
+ 		default:
+ 			printf("Error in add vcpu [%m]\n");
+-
+ 		}
++
+ 		return rc;
+ 	}
+ 
+-- 
+2.32.0
+

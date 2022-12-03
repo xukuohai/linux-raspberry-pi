@@ -1,0 +1,36 @@
+From 3e875737ed1b16e61f68701f7ca02e8101c896b0 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:55 -0700
+Subject: mm/damon/sysfs: prohibit multiple physical address space monitoring
+ targets
+
+Having multiple targets for physical address space monitoring makes no
+sense.  This commit prohibits such a ridiculous DAMON context setup my
+making the DAMON context build function to check and return an error for
+the case.
+
+Link: https://lkml.kernel.org/r/20220429160606.127307-7-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/sysfs.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/mm/damon/sysfs.c b/mm/damon/sysfs.c
+index f753bb405101..3d2da791ebd8 100644
+--- a/mm/damon/sysfs.c
++++ b/mm/damon/sysfs.c
+@@ -2125,6 +2125,10 @@ static int damon_sysfs_set_targets(struct damon_ctx *ctx,
+ {
+ 	int i, err;
+ 
++	/* Multiple physical address space monitoring targets makes no sense */
++	if (ctx->ops.id == DAMON_OPS_PADDR && sysfs_targets->nr > 1)
++		return -EINVAL;
++
+ 	for (i = 0; i < sysfs_targets->nr; i++) {
+ 		struct damon_sysfs_target *sys_target =
+ 			sysfs_targets->targets_arr[i];
+-- 
+2.32.0
+

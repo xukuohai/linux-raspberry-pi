@@ -1,0 +1,189 @@
+From 07745c3dd959cf8974d1c97f44dbf1699160be7a Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 6 Mar 2019 21:39:35 +0000
+Subject: lustre: use SB_* instead of MS_* as superblock flags.
+
+Later kernel versions (4.14 and up), have SB_* defined as the flags
+to be used in the superblock, not MS_* mount flags. Still later,
+in 4.20 and up, the MS_* flags were moved to a different include file,
+and no longer used in the kernel.
+
+To make the code compile in all these scenarios, use SB_* consistently in
+the code. If the SB_* values are not defined (for older kernels), define
+them as MS_*, in lustre_compat.h.
+
+Linux commit: e262e32d6bde ("vfs: Suppress MS_* flag defs within the kernel
+unless explicitly enabled")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/lustre/include/lustre_compat.h  | 26 ++++++++++++++++++-
+ drivers/staging/lustrefsx/lustre/llite/file.c |  2 +-
+ .../lustrefsx/lustre/llite/llite_lib.c        | 24 ++++++++---------
+ .../staging/lustrefsx/lustre/llite/namei.c    |  4 +--
+ .../lustre/obdclass/obd_mount_server.c        |  2 +-
+ 5 files changed, 41 insertions(+), 17 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index e44cd462079d..a900bba89839 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -538,7 +538,31 @@ static inline bool is_sxid(umode_t mode)
+ #define IS_NOSEC(inode)	(!is_sxid(inode->i_mode))
+ #endif
+ 
+-#ifndef MS_NOSEC
++/*
++ * Upstream Linux kernel commit e462ec50cb5fad19f6003a3d8087f4a0945dd2b1
++ * differentiated the MS_ values from SB_* values. We use SB_*
++ * throughout, but account here for older kernels that do not have
++ * SB_*. The values below are only the ones currently used in the Lustre
++ * code.
++ */
++
++#ifndef SB_RDONLY
++
++#define SB_RDONLY	MS_RDONLY
++#define SB_ACTIVE	MS_ACTIVE
++#define SB_NODIRATIME	MS_NODIRATIME
++
++#if defined(MS_POSIXACL)
++#define SB_POSIXACL MS_POSIXACL
++#endif
++
++#if defined(MS_NOSEC)
++#define SB_NOSEC MS_NOSEC
++#endif
++
++#endif
++
++#ifndef SB_NOSEC
+ static inline void inode_has_no_xattr(struct inode *inode)
+ {
+ 	return;
+diff --git a/drivers/staging/lustrefsx/lustre/llite/file.c b/drivers/staging/lustrefsx/lustre/llite/file.c
+index 1fefb8f63dc0..45cd5a409430 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/file.c
++++ b/drivers/staging/lustrefsx/lustre/llite/file.c
+@@ -1073,7 +1073,7 @@ static bool file_is_noatime(const struct file *file)
+ 	if ((mnt->mnt_flags & MNT_NODIRATIME) && S_ISDIR(inode->i_mode))
+ 		return true;
+ 
+-	if ((inode->i_sb->s_flags & MS_NODIRATIME) && S_ISDIR(inode->i_mode))
++	if ((inode->i_sb->s_flags & SB_NODIRATIME) && S_ISDIR(inode->i_mode))
+ 		return true;
+ 
+ 	return false;
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+index 833d68d16381..da5664db3dd5 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+@@ -236,16 +236,16 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
+         data->ocd_ibits_known = MDS_INODELOCK_FULL;
+         data->ocd_version = LUSTRE_VERSION_CODE;
+ 
+-        if (sb->s_flags & MS_RDONLY)
++        if (sb->s_flags & SB_RDONLY)
+                 data->ocd_connect_flags |= OBD_CONNECT_RDONLY;
+         if (sbi->ll_flags & LL_SBI_USER_XATTR)
+                 data->ocd_connect_flags |= OBD_CONNECT_XATTR;
+ 
+-#ifdef MS_NOSEC
++#ifdef SB_NOSEC
+ 	/* Setting this indicates we correctly support S_NOSEC (See kernel
+ 	 * commit 9e1f1de02c2275d7172e18dc4e7c2065777611bf)
+ 	 */
+-	sb->s_flags |= MS_NOSEC;
++	sb->s_flags |= SB_NOSEC;
+ #endif
+ 
+         if (sbi->ll_flags & LL_SBI_FLOCK)
+@@ -345,14 +345,14 @@ static int client_common_fill_super(struct super_block *sb, char *md, char *dt,
+         }
+ 
+         if (data->ocd_connect_flags & OBD_CONNECT_ACL) {
+-#ifdef MS_POSIXACL
+-                sb->s_flags |= MS_POSIXACL;
++#ifdef SB_POSIXACL
++                sb->s_flags |= SB_POSIXACL;
+ #endif
+                 sbi->ll_flags |= LL_SBI_ACL;
+         } else {
+                 LCONSOLE_INFO("client wants to enable acl, but mdt not!\n");
+-#ifdef MS_POSIXACL
+-                sb->s_flags &= ~MS_POSIXACL;
++#ifdef SB_POSIXACL
++                sb->s_flags &= ~SB_POSIXACL;
+ #endif
+                 sbi->ll_flags &= ~LL_SBI_ACL;
+         }
+@@ -724,7 +724,7 @@ void ll_kill_super(struct super_block *sb)
+ 	ENTRY;
+ 
+         /* not init sb ?*/
+-	if (!(sb->s_flags & MS_ACTIVE))
++	if (!(sb->s_flags & SB_ACTIVE))
+ 		return;
+ 
+ 	sbi = ll_s2sbi(sb);
+@@ -2213,8 +2213,8 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
+         int err;
+         __u32 read_only;
+ 
+-        if ((*flags & MS_RDONLY) != (sb->s_flags & MS_RDONLY)) {
+-                read_only = *flags & MS_RDONLY;
++        if ((*flags & SB_RDONLY) != (sb->s_flags & SB_RDONLY)) {
++                read_only = *flags & SB_RDONLY;
+                 err = obd_set_info_async(NULL, sbi->ll_md_exp,
+                                          sizeof(KEY_READ_ONLY),
+                                          KEY_READ_ONLY, sizeof(read_only),
+@@ -2227,9 +2227,9 @@ int ll_remount_fs(struct super_block *sb, int *flags, char *data)
+                 }
+ 
+                 if (read_only)
+-                        sb->s_flags |= MS_RDONLY;
++                        sb->s_flags |= SB_RDONLY;
+                 else
+-                        sb->s_flags &= ~MS_RDONLY;
++                        sb->s_flags &= ~SB_RDONLY;
+ 
+                 if (sbi->ll_flags & LL_SBI_VERBOSE)
+                         LCONSOLE_WARN("Remounted %s %s\n", profilenm,
+diff --git a/drivers/staging/lustrefsx/lustre/llite/namei.c b/drivers/staging/lustrefsx/lustre/llite/namei.c
+index 81d95cca601e..cf9f3e26d9a5 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/namei.c
++++ b/drivers/staging/lustrefsx/lustre/llite/namei.c
+@@ -574,7 +574,7 @@ static struct dentry *ll_lookup_it(struct inode *parent, struct dentry *dentry,
+ 	}
+ 
+ 	if (it->it_op & IT_OPEN && it->it_flags & FMODE_WRITE &&
+-	    dentry->d_sb->s_flags & MS_RDONLY)
++	    dentry->d_sb->s_flags & SB_RDONLY)
+ 		RETURN(ERR_PTR(-EROFS));
+ 
+ 	if (it->it_op & IT_CREAT)
+@@ -855,7 +855,7 @@ static struct dentry *ll_lookup_nd(struct inode *parent, struct dentry *dentry,
+ 
+ 			it = ll_convert_intent(&nd->intent.open, nd->flags,
+ 				(nd->path.mnt->mnt_flags & MNT_READONLY) ||
+-				(nd->path.mnt->mnt_sb->s_flags & MS_RDONLY));
++				(nd->path.mnt->mnt_sb->s_flags & SB_RDONLY));
+ 			if (IS_ERR(it))
+ 				RETURN((struct dentry *)it);
+ 		}
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
+index dc2d192dcb04..204fc889da45 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_mount_server.c
+@@ -1733,7 +1733,7 @@ static int server_fill_super_common(struct super_block *sb)
+ 	sb->s_blocksize_bits = log2(sb->s_blocksize);
+ 	sb->s_magic = LUSTRE_SUPER_MAGIC;
+ 	sb->s_maxbytes = 0; /* we don't allow file IO on server mountpoints */
+-	sb->s_flags |= MS_RDONLY;
++	sb->s_flags |= SB_RDONLY;
+ 	sb->s_op = &server_ops;
+ 
+ 	root = new_inode(sb);
+-- 
+2.32.0
+

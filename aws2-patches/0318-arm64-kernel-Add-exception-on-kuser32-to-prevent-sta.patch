@@ -1,0 +1,33 @@
+From efbb60da88110b0b5f2553dc69432153d43e5348 Mon Sep 17 00:00:00 2001
+From: Raphael Gault <raphael.gault@arm.com>
+Date: Fri, 16 Aug 2019 13:24:00 +0100
+Subject: arm64: kernel: Add exception on kuser32 to prevent stack analysis
+
+kuser32 being used for compatibility, it contains a32 instructions
+which are not recognised by objtool when trying to analyse arm64
+object files. Thus, we add an exception to skip validation on this
+particular file.
+
+Signed-off-by: Raphael Gault <raphael.gault@arm.com>
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/Makefile | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/kernel/Makefile b/arch/arm64/kernel/Makefile
+index 643acbc605be..8f82dc5e1b9e 100644
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -29,6 +29,9 @@ obj-$(CONFIG_COMPAT)			+= sys32.o signal32.o			\
+ 					   sys_compat.o
+ obj-$(CONFIG_COMPAT)			+= sigreturn32.o
+ obj-$(CONFIG_KUSER_HELPERS)		+= kuser32.o
++
++OBJECT_FILES_NON_STANDARD_kuser32.o := y
++
+ obj-$(CONFIG_FUNCTION_TRACER)		+= ftrace.o entry-ftrace.o
+ obj-$(CONFIG_MODULES)			+= module.o
+ obj-$(CONFIG_ARM64_MODULE_PLTS)		+= module-plts.o
+-- 
+2.32.0
+

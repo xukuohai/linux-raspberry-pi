@@ -1,0 +1,326 @@
+From d7054d36a6c0f78e179becc2187490af999b2982 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Tue, 30 Aug 2022 14:03:27 -0700
+Subject: Revert "x86/speculation: Add RSB VM Exit protections"
+
+This reverts commit 509c2c9fe75ea7493eebbb6bb2f711f37530ae19.
+
+Commit "1a072f13b2dc Mitigate unbalanced RETs on vmexit via serialising wrmsr"
+addresses this with less performance impact.
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+---
+ Documentation/admin-guide/hw-vuln/spectre.rst |  8 --
+ arch/x86/include/asm/cpufeatures.h            |  2 -
+ arch/x86/include/asm/msr-index.h              |  4 -
+ arch/x86/include/asm/nospec-branch.h          |  7 +-
+ arch/x86/kernel/cpu/bugs.c                    | 86 +++++--------------
+ arch/x86/kernel/cpu/common.c                  | 12 +--
+ arch/x86/kvm/vmx/vmenter.S                    |  8 +-
+ arch/x86/kvm/x86.c                            |  2 +-
+ tools/arch/x86/include/asm/cpufeatures.h      |  1 -
+ tools/arch/x86/include/asm/msr-index.h        |  4 -
+ 10 files changed, 32 insertions(+), 102 deletions(-)
+
+diff --git a/Documentation/admin-guide/hw-vuln/spectre.rst b/Documentation/admin-guide/hw-vuln/spectre.rst
+index 7e061ed449aa..6bd97cd50d62 100644
+--- a/Documentation/admin-guide/hw-vuln/spectre.rst
++++ b/Documentation/admin-guide/hw-vuln/spectre.rst
+@@ -422,14 +422,6 @@ The possible values in this file are:
+   'RSB filling'   Protection of RSB on context switch enabled
+   =============   ===========================================
+ 
+-  - EIBRS Post-barrier Return Stack Buffer (PBRSB) protection status:
+-
+-  ===========================  =======================================================
+-  'PBRSB-eIBRS: SW sequence'   CPU is affected and protection of RSB on VMEXIT enabled
+-  'PBRSB-eIBRS: Vulnerable'    CPU is vulnerable
+-  'PBRSB-eIBRS: Not affected'  CPU is not affected by PBRSB
+-  ===========================  =======================================================
+-
+ Full mitigation might require a microcode update from the CPU
+ vendor. When the necessary microcode is not available, the kernel will
+ report vulnerability.
+diff --git a/arch/x86/include/asm/cpufeatures.h b/arch/x86/include/asm/cpufeatures.h
+index f507ad7c7fd7..28d23d591fdf 100644
+--- a/arch/x86/include/asm/cpufeatures.h
++++ b/arch/x86/include/asm/cpufeatures.h
+@@ -299,7 +299,6 @@
+ #define X86_FEATURE_RETHUNK		(11*32+14) /* "" Use REturn THUNK */
+ #define X86_FEATURE_UNRET		(11*32+15) /* "" AMD BTB untrain return */
+ #define X86_FEATURE_USE_IBPB_FW		(11*32+16) /* "" Use IBPB during runtime firmware calls */
+-#define X86_FEATURE_RSB_VMEXIT_LITE	(11*32+17) /* "" Fill RSB on VM exit when EIBRS is enabled */
+ 
+ /* Intel-defined CPU features, CPUID level 0x00000007:1 (EAX), word 12 */
+ #define X86_FEATURE_AVX512_BF16		(12*32+ 5) /* AVX512 BFLOAT16 instructions */
+@@ -431,6 +430,5 @@
+ #define X86_BUG_MMIO_STALE_DATA		X86_BUG(25) /* CPU is affected by Processor MMIO Stale Data vulnerabilities */
+ #define X86_BUG_MMIO_UNKNOWN		X86_BUG(26) /* CPU is too old and its MMIO Stale Data status is unknown */
+ #define X86_BUG_RETBLEED		X86_BUG(27) /* CPU is affected by RETBleed */
+-#define X86_BUG_EIBRS_PBRSB		X86_BUG(28) /* EIBRS is vulnerable to Post Barrier RSB Predictions */
+ 
+ #endif /* _ASM_X86_CPUFEATURES_H */
+diff --git a/arch/x86/include/asm/msr-index.h b/arch/x86/include/asm/msr-index.h
+index 144dc164b759..407de670cd60 100644
+--- a/arch/x86/include/asm/msr-index.h
++++ b/arch/x86/include/asm/msr-index.h
+@@ -148,10 +148,6 @@
+ 						 * are restricted to targets in
+ 						 * kernel.
+ 						 */
+-#define ARCH_CAP_PBRSB_NO		BIT(24)	/*
+-						 * Not susceptible to Post-Barrier
+-						 * Return Stack Buffer Predictions.
+-						 */
+ 
+ #define MSR_IA32_FLUSH_CMD		0x0000010b
+ #define L1D_FLUSH			BIT(0)	/*
+diff --git a/arch/x86/include/asm/nospec-branch.h b/arch/x86/include/asm/nospec-branch.h
+index 07f5030073bb..21d287487d53 100644
+--- a/arch/x86/include/asm/nospec-branch.h
++++ b/arch/x86/include/asm/nospec-branch.h
+@@ -147,10 +147,9 @@
+   * A simpler FILL_RETURN_BUFFER macro. Don't make people use the CPP
+   * monstrosity above, manually.
+   */
+-.macro FILL_RETURN_BUFFER reg:req nr:req ftr:req ftr2=ALT_NOT(X86_FEATURE_ALWAYS)
+-	ALTERNATIVE_2 "jmp .Lskip_rsb_\@", \
+-		__stringify(__FILL_RETURN_BUFFER(\reg,\nr)), \ftr, \
+-		__stringify(__FILL_ONE_RETURN), \ftr2
++.macro FILL_RETURN_BUFFER reg:req nr:req ftr:req
++	ALTERNATIVE "jmp .Lskip_rsb_\@", \
++		__stringify(__FILL_RETURN_BUFFER(\reg,\nr)), \ftr
+ 
+ .Lskip_rsb_\@:
+ .endm
+diff --git a/arch/x86/kernel/cpu/bugs.c b/arch/x86/kernel/cpu/bugs.c
+index a300a19255b6..2dfffb775505 100644
+--- a/arch/x86/kernel/cpu/bugs.c
++++ b/arch/x86/kernel/cpu/bugs.c
+@@ -1295,53 +1295,6 @@ static void __init spec_ctrl_disable_kernel_rrsba(void)
+ 	}
+ }
+ 
+-static void __init spectre_v2_determine_rsb_fill_type_at_vmexit(enum spectre_v2_mitigation mode)
+-{
+-	/*
+-	 * Similar to context switches, there are two types of RSB attacks
+-	 * after VM exit:
+-	 *
+-	 * 1) RSB underflow
+-	 *
+-	 * 2) Poisoned RSB entry
+-	 *
+-	 * When retpoline is enabled, both are mitigated by filling/clearing
+-	 * the RSB.
+-	 *
+-	 * When IBRS is enabled, while #1 would be mitigated by the IBRS branch
+-	 * prediction isolation protections, RSB still needs to be cleared
+-	 * because of #2.  Note that SMEP provides no protection here, unlike
+-	 * user-space-poisoned RSB entries.
+-	 *
+-	 * eIBRS should protect against RSB poisoning, but if the EIBRS_PBRSB
+-	 * bug is present then a LITE version of RSB protection is required,
+-	 * just a single call needs to retire before a RET is executed.
+-	 */
+-	switch (mode) {
+-	case SPECTRE_V2_NONE:
+-		return;
+-
+-	case SPECTRE_V2_EIBRS_LFENCE:
+-	case SPECTRE_V2_EIBRS:
+-		if (boot_cpu_has_bug(X86_BUG_EIBRS_PBRSB)) {
+-			setup_force_cpu_cap(X86_FEATURE_RSB_VMEXIT_LITE);
+-			pr_info("Spectre v2 / PBRSB-eIBRS: Retire a single CALL on VMEXIT\n");
+-		}
+-		return;
+-
+-	case SPECTRE_V2_EIBRS_RETPOLINE:
+-	case SPECTRE_V2_RETPOLINE:
+-	case SPECTRE_V2_LFENCE:
+-	case SPECTRE_V2_IBRS:
+-		setup_force_cpu_cap(X86_FEATURE_RSB_VMEXIT);
+-		pr_info("Spectre v2 / SpectreRSB : Filling RSB on VMEXIT\n");
+-		return;
+-	}
+-
+-	pr_warn_once("Unknown Spectre v2 mode, disabling RSB mitigation at VM exit");
+-	dump_stack();
+-}
+-
+ static void __init spectre_v2_select_mitigation(void)
+ {
+ 	enum spectre_v2_mitigation_cmd cmd = spectre_v2_parse_cmdline();
+@@ -1492,7 +1445,28 @@ static void __init spectre_v2_select_mitigation(void)
+ 	setup_force_cpu_cap(X86_FEATURE_RSB_CTXSW);
+ 	pr_info("Spectre v2 / SpectreRSB mitigation: Filling RSB on context switch\n");
+ 
+-	spectre_v2_determine_rsb_fill_type_at_vmexit(mode);
++	/*
++	 * Similar to context switches, there are two types of RSB attacks
++	 * after vmexit:
++	 *
++	 * 1) RSB underflow
++	 *
++	 * 2) Poisoned RSB entry
++	 *
++	 * When retpoline is enabled, both are mitigated by filling/clearing
++	 * the RSB.
++	 *
++	 * When IBRS is enabled, while #1 would be mitigated by the IBRS branch
++	 * prediction isolation protections, RSB still needs to be cleared
++	 * because of #2.  Note that SMEP provides no protection here, unlike
++	 * user-space-poisoned RSB entries.
++	 *
++	 * eIBRS, on the other hand, has RSB-poisoning protections, so it
++	 * doesn't need RSB clearing after vmexit.
++	 */
++	if (boot_cpu_has(X86_FEATURE_RETPOLINE) ||
++	    boot_cpu_has(X86_FEATURE_KERNEL_IBRS))
++		setup_force_cpu_cap(X86_FEATURE_RSB_VMEXIT);
+ 
+ 	/*
+ 	 * Retpoline protects the kernel, but doesn't protect firmware.  IBRS
+@@ -2248,19 +2222,6 @@ static char *ibpb_state(void)
+ 	return "";
+ }
+ 
+-static char *pbrsb_eibrs_state(void)
+-{
+-	if (boot_cpu_has_bug(X86_BUG_EIBRS_PBRSB)) {
+-		if (boot_cpu_has(X86_FEATURE_RSB_VMEXIT_LITE) ||
+-		    boot_cpu_has(X86_FEATURE_RSB_VMEXIT))
+-			return ", PBRSB-eIBRS: SW sequence";
+-		else
+-			return ", PBRSB-eIBRS: Vulnerable";
+-	} else {
+-		return ", PBRSB-eIBRS: Not affected";
+-	}
+-}
+-
+ static ssize_t spectre_v2_show_state(char *buf)
+ {
+ 	if (spectre_v2_enabled == SPECTRE_V2_LFENCE)
+@@ -2273,13 +2234,12 @@ static ssize_t spectre_v2_show_state(char *buf)
+ 	    spectre_v2_enabled == SPECTRE_V2_EIBRS_LFENCE)
+ 		return sprintf(buf, "Vulnerable: eIBRS+LFENCE with unprivileged eBPF and SMT\n");
+ 
+-	return sprintf(buf, "%s%s%s%s%s%s%s\n",
++	return sprintf(buf, "%s%s%s%s%s%s\n",
+ 		       spectre_v2_strings[spectre_v2_enabled],
+ 		       ibpb_state(),
+ 		       boot_cpu_has(X86_FEATURE_USE_IBRS_FW) ? ", IBRS_FW" : "",
+ 		       stibp_state(),
+ 		       boot_cpu_has(X86_FEATURE_RSB_CTXSW) ? ", RSB filling" : "",
+-		       pbrsb_eibrs_state(),
+ 		       spectre_v2_module_string());
+ }
+ 
+diff --git a/arch/x86/kernel/cpu/common.c b/arch/x86/kernel/cpu/common.c
+index 56573241d029..b75a8b68ba8d 100644
+--- a/arch/x86/kernel/cpu/common.c
++++ b/arch/x86/kernel/cpu/common.c
+@@ -1025,7 +1025,6 @@ static void identify_cpu_without_cpuid(struct cpuinfo_x86 *c)
+ #define NO_ITLB_MULTIHIT	BIT(7)
+ #define NO_SPECTRE_V2		BIT(8)
+ #define NO_MMIO			BIT(9)
+-#define NO_EIBRS_PBRSB		BIT(10)
+ 
+ #define VULNWL(vendor, family, model, whitelist)	\
+ 	X86_MATCH_VENDOR_FAM_MODEL(vendor, family, model, whitelist)
+@@ -1071,7 +1070,7 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
+ 
+ 	VULNWL_INTEL(ATOM_GOLDMONT,		NO_MDS | NO_L1TF | NO_SWAPGS | NO_ITLB_MULTIHIT | NO_MMIO),
+ 	VULNWL_INTEL(ATOM_GOLDMONT_D,		NO_MDS | NO_L1TF | NO_SWAPGS | NO_ITLB_MULTIHIT | NO_MMIO),
+-	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF | NO_SWAPGS | NO_ITLB_MULTIHIT | NO_MMIO | NO_EIBRS_PBRSB),
++	VULNWL_INTEL(ATOM_GOLDMONT_PLUS,	NO_MDS | NO_L1TF | NO_SWAPGS | NO_ITLB_MULTIHIT | NO_MMIO),
+ 
+ 	/*
+ 	 * Technically, swapgs isn't serializing on AMD (despite it previously
+@@ -1081,9 +1080,7 @@ static const __initconst struct x86_cpu_id cpu_vuln_whitelist[] = {
+ 	 * good enough for our purposes.
+ 	 */
+ 
+-	VULNWL_INTEL(ATOM_TREMONT,		NO_EIBRS_PBRSB),
+-	VULNWL_INTEL(ATOM_TREMONT_L,		NO_EIBRS_PBRSB),
+-	VULNWL_INTEL(ATOM_TREMONT_D,		NO_ITLB_MULTIHIT | NO_EIBRS_PBRSB),
++	VULNWL_INTEL(ATOM_TREMONT_D,		NO_ITLB_MULTIHIT),
+ 
+ 	/* AMD Family 0xf - 0x12 */
+ 	VULNWL_AMD(0x0f,	NO_MELTDOWN | NO_SSB | NO_L1TF | NO_MDS | NO_SWAPGS | NO_ITLB_MULTIHIT | NO_MMIO),
+@@ -1267,11 +1264,6 @@ static void __init cpu_set_bug_bits(struct cpuinfo_x86 *c)
+ 			setup_force_cpu_bug(X86_BUG_RETBLEED);
+ 	}
+ 
+-	if (cpu_has(c, X86_FEATURE_IBRS_ENHANCED) &&
+-	    !cpu_matches(cpu_vuln_whitelist, NO_EIBRS_PBRSB) &&
+-	    !(ia32_cap & ARCH_CAP_PBRSB_NO))
+-		setup_force_cpu_bug(X86_BUG_EIBRS_PBRSB);
+-
+ 	if (cpu_matches(cpu_vuln_whitelist, NO_MELTDOWN))
+ 		return;
+ 
+diff --git a/arch/x86/kvm/vmx/vmenter.S b/arch/x86/kvm/vmx/vmenter.S
+index 982138bebb70..857fa0fc49fa 100644
+--- a/arch/x86/kvm/vmx/vmenter.S
++++ b/arch/x86/kvm/vmx/vmenter.S
+@@ -197,13 +197,11 @@ SYM_INNER_LABEL(vmx_vmexit, SYM_L_GLOBAL)
+ 	 * entries and (in some cases) RSB underflow.
+ 	 *
+ 	 * eIBRS has its own protection against poisoned RSB, so it doesn't
+-	 * need the RSB filling sequence.  But it does need to be enabled, and a
+-	 * single call to retire, before the first unbalanced RET.
++	 * need the RSB filling sequence.  But it does need to be enabled
++	 * before the first unbalanced RET.
+          */
+ 
+-	FILL_RETURN_BUFFER %_ASM_CX, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_VMEXIT,\
+-			   X86_FEATURE_RSB_VMEXIT_LITE
+-
++	FILL_RETURN_BUFFER %_ASM_CX, RSB_CLEAR_LOOPS, X86_FEATURE_RSB_VMEXIT
+ 
+ 	pop %_ASM_ARG2	/* @flags */
+ 	pop %_ASM_ARG1	/* @vmx */
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index 16690defedb3..d64ed3aa9430 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -1380,7 +1380,7 @@ static unsigned int num_msr_based_features;
+ 	 ARCH_CAP_SKIP_VMENTRY_L1DFLUSH | ARCH_CAP_SSB_NO | ARCH_CAP_MDS_NO | \
+ 	 ARCH_CAP_PSCHANGE_MC_NO | ARCH_CAP_TSX_CTRL_MSR | ARCH_CAP_TAA_NO | \
+ 	 ARCH_CAP_SBDR_SSDP_NO | ARCH_CAP_FBSDP_NO | ARCH_CAP_PSDP_NO | \
+-	 ARCH_CAP_FB_CLEAR | ARCH_CAP_RRSBA | ARCH_CAP_PBRSB_NO)
++	 ARCH_CAP_FB_CLEAR | ARCH_CAP_RRSBA)
+ 
+ static u64 kvm_get_arch_capabilities(void)
+ {
+diff --git a/tools/arch/x86/include/asm/cpufeatures.h b/tools/arch/x86/include/asm/cpufeatures.h
+index ec53f52a06a5..54ba20492ad1 100644
+--- a/tools/arch/x86/include/asm/cpufeatures.h
++++ b/tools/arch/x86/include/asm/cpufeatures.h
+@@ -296,7 +296,6 @@
+ #define X86_FEATURE_RETPOLINE_LFENCE	(11*32+13) /* "" Use LFENCE for Spectre variant 2 */
+ #define X86_FEATURE_RETHUNK		(11*32+14) /* "" Use REturn THUNK */
+ #define X86_FEATURE_UNRET		(11*32+15) /* "" AMD BTB untrain return */
+-#define X86_FEATURE_RSB_VMEXIT_LITE	(11*32+17) /* "" Fill RSB on VM-Exit when EIBRS is enabled */
+ 
+ /* Intel-defined CPU features, CPUID level 0x00000007:1 (EAX), word 12 */
+ #define X86_FEATURE_AVX512_BF16		(12*32+ 5) /* AVX512 BFLOAT16 instructions */
+diff --git a/tools/arch/x86/include/asm/msr-index.h b/tools/arch/x86/include/asm/msr-index.h
+index 144dc164b759..407de670cd60 100644
+--- a/tools/arch/x86/include/asm/msr-index.h
++++ b/tools/arch/x86/include/asm/msr-index.h
+@@ -148,10 +148,6 @@
+ 						 * are restricted to targets in
+ 						 * kernel.
+ 						 */
+-#define ARCH_CAP_PBRSB_NO		BIT(24)	/*
+-						 * Not susceptible to Post-Barrier
+-						 * Return Stack Buffer Predictions.
+-						 */
+ 
+ #define MSR_IA32_FLUSH_CMD		0x0000010b
+ #define L1D_FLUSH			BIT(0)	/*
+-- 
+2.32.0
+

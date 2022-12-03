@@ -1,0 +1,33 @@
+From 342cee15b8be7c13974ed16eb84473d2cafe9cc8 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 16 Oct 2020 15:51:29 +0000
+Subject: lustre: remove the pgprot argument to __vmalloc
+
+Commit 88dca4ca5a93 ("mm: remove the pgprot argument to __vmalloc")
+removed the pgprot argument to __vmalloc, since it's always
+PAGE_KERNEL now.
+
+Adapt the call in the lustre code to do the same.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/include/obd_support.h | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/obd_support.h b/drivers/staging/lustrefsx/lustre/include/obd_support.h
+index 59f3ab530c9e..f8abcb83f030 100644
+--- a/drivers/staging/lustrefsx/lustre/include/obd_support.h
++++ b/drivers/staging/lustrefsx/lustre/include/obd_support.h
+@@ -762,8 +762,7 @@ do {									      \
+ #define __OBD_VMALLOC_VERBOSE(ptr, cptab, cpt, size)			      \
+ do {									      \
+ 	(ptr) = cptab == NULL ?						      \
+-		__vmalloc(size, GFP_NOFS | __GFP_HIGHMEM | __GFP_ZERO,	      \
+-			  PAGE_KERNEL) :				      \
++		__vmalloc(size, GFP_NOFS | __GFP_HIGHMEM | __GFP_ZERO) :      \
+ 		cfs_cpt_vzalloc(cptab, cpt, size);			      \
+ 	if (unlikely((ptr) == NULL)) {                                        \
+ 		CERROR("vmalloc of '" #ptr "' (%d bytes) failed\n",           \
+-- 
+2.32.0
+

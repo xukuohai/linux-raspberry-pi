@@ -1,0 +1,48 @@
+From e6f3bb382fbc52ddbe30ab4e31b9747487ce4d73 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 20 Jan 2021 16:12:11 +0100
+Subject: arm64: kvm: Annotate stack state for guest enter/exit code
+
+Symbol __guest_enter is called from C code, with a valid stack pointer.
+
+Symbol __guest_exit is reached when resuming EL2 execution, and the
+previous stack pointer gets restored.
+
+Add adequate unwind hints.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kvm/hyp/entry.S | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/kvm/hyp/entry.S b/arch/arm64/kvm/hyp/entry.S
+index 78334aea907a..34c35069a01f 100644
+--- a/arch/arm64/kvm/hyp/entry.S
++++ b/arch/arm64/kvm/hyp/entry.S
+@@ -14,6 +14,7 @@
+ #include <asm/kvm_asm.h>
+ #include <asm/kvm_mmu.h>
+ #include <asm/kvm_ptrauth.h>
++#include <asm/unwind_hints.h>
+ 
+ 	.text
+ 
+@@ -21,6 +22,7 @@
+  * u64 __guest_enter(struct kvm_vcpu *vcpu);
+  */
+ SYM_CODE_START(__guest_enter)
++	UNWIND_HINT_FUNC
+ 	// x0: vcpu
+ 	// x1-x17: clobbered by macros
+ 	// x29: guest context
+@@ -104,6 +106,7 @@ SYM_INNER_LABEL(__guest_exit, SYM_L_GLOBAL)
+ 	// x1: vcpu
+ 	// x2-x29,lr: vcpu regs
+ 	// vcpu x0-x1 on the stack
++	UNWIND_HINT_FUNC sp_offset=16
+ 
+ 	add	x1, x1, #VCPU_CONTEXT
+ 
+-- 
+2.32.0
+

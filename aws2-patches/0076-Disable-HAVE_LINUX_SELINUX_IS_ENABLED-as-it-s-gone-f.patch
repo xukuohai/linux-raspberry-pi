@@ -1,0 +1,27 @@
+From 09b5bb2ad21bdcf81b249c8e647d51c8b39a89c2 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 2 Dec 2020 21:51:18 +0000
+Subject: Disable HAVE_LINUX_SELINUX_IS_ENABLED, as it's gone for recent
+ kernels.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index 99c60fb260a7..0d000a1f58fb 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -579,7 +579,7 @@
+ #define HAVE_LINUX_RANDOM_H 1
+ 
+ /* if linux/selinux.h exists */
+-#define HAVE_LINUX_SELINUX_IS_ENABLED 1
++#undef HAVE_LINUX_SELINUX_IS_ENABLED
+ 
+ /* Define to 1 if you have the <linux/types.h> header file. */
+ #define HAVE_LINUX_TYPES_H 1
+-- 
+2.32.0
+

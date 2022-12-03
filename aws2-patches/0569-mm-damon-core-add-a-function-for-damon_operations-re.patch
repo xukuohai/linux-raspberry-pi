@@ -1,0 +1,108 @@
+From c1a831a3063e420943b58a64ca61623a7b6d3239 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:51 -0700
+Subject: mm/damon/core: add a function for damon_operations registration
+ checks
+
+Patch series "mm/damon: allow users know which monitoring ops are available".
+
+DAMON users can configure it for vaious address spaces including virtual
+address spaces and the physical address space by setting its monitoring
+operations set with appropriate one for their purpose.  However, there is
+no celan and simple way to know exactly which monitoring operations sets
+are available on the currently running kernel.
+
+This patchset adds functions for the purpose on DAMON's kernel API
+('damon_is_registered_ops()') and sysfs interface ('avail_operations' file
+under each context directory).
+
+
+This patch (of 4):
+
+To know if a specific 'damon_operations' is registered, users need to
+check the kernel config or try 'damon_select_ops()' with the ops of the
+question, and then see if it successes.  In the latter case, the user
+should also revert the change.  To make the process simple and convenient,
+this commit adds a function for checking if a specific 'damon_operations'
+is registered or not.
+
+Link: https://lkml.kernel.org/r/20220426203843.45238-1-sj@kernel.org
+Link: https://lkml.kernel.org/r/20220426203843.45238-2-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ include/linux/damon.h |  1 +
+ mm/damon/core.c       | 24 +++++++++++++++++++++---
+ 2 files changed, 22 insertions(+), 3 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index f23cbfa4248d..73ff0e2d2a4d 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -509,6 +509,7 @@ int damon_set_attrs(struct damon_ctx *ctx, unsigned long sample_int,
+ int damon_set_schemes(struct damon_ctx *ctx,
+ 			struct damos **schemes, ssize_t nr_schemes);
+ int damon_nr_running_ctxs(void);
++bool damon_is_registered_ops(enum damon_ops_id id);
+ int damon_register_ops(struct damon_operations *ops);
+ int damon_select_ops(struct damon_ctx *ctx, enum damon_ops_id id);
+ 
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 5fe42e47c57b..997cf7b17779 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -30,7 +30,7 @@ static DEFINE_MUTEX(damon_ops_lock);
+ static struct damon_operations damon_registered_ops[NR_DAMON_OPS];
+ 
+ /* Should be called under damon_ops_lock with id smaller than NR_DAMON_OPS */
+-static bool damon_registered_ops_id(enum damon_ops_id id)
++static bool __damon_is_registered_ops(enum damon_ops_id id)
+ {
+ 	struct damon_operations empty_ops = {};
+ 
+@@ -39,6 +39,24 @@ static bool damon_registered_ops_id(enum damon_ops_id id)
+ 	return true;
+ }
+ 
++/**
++ * damon_is_registered_ops() - Check if a given damon_operations is registered.
++ * @id:	Id of the damon_operations to check if registered.
++ *
++ * Return: true if the ops is set, false otherwise.
++ */
++bool damon_is_registered_ops(enum damon_ops_id id)
++{
++	bool registered;
++
++	if (id >= NR_DAMON_OPS)
++		return false;
++	mutex_lock(&damon_ops_lock);
++	registered = __damon_is_registered_ops(id);
++	mutex_unlock(&damon_ops_lock);
++	return registered;
++}
++
+ /**
+  * damon_register_ops() - Register a monitoring operations set to DAMON.
+  * @ops:	monitoring operations set to register.
+@@ -56,7 +74,7 @@ int damon_register_ops(struct damon_operations *ops)
+ 		return -EINVAL;
+ 	mutex_lock(&damon_ops_lock);
+ 	/* Fail for already registered ops */
+-	if (damon_registered_ops_id(ops->id)) {
++	if (__damon_is_registered_ops(ops->id)) {
+ 		err = -EINVAL;
+ 		goto out;
+ 	}
+@@ -84,7 +102,7 @@ int damon_select_ops(struct damon_ctx *ctx, enum damon_ops_id id)
+ 		return -EINVAL;
+ 
+ 	mutex_lock(&damon_ops_lock);
+-	if (!damon_registered_ops_id(id))
++	if (!__damon_is_registered_ops(id))
+ 		err = -EINVAL;
+ 	else
+ 		ctx->ops = damon_registered_ops[id];
+-- 
+2.32.0
+

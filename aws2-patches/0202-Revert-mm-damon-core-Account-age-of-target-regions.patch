@@ -1,0 +1,93 @@
+From 81d79de9102dac4de4d2e653c54f97c8859e59b4 Mon Sep 17 00:00:00 2001
+From: Anchal Agarwal <anchalag@amazon.com>
+Date: Mon, 11 Oct 2021 18:13:59 +0000
+Subject: Revert "mm/damon/core: Account age of target regions"
+
+This reverts commit 7c245d0cbca7e3be344d27bfe2a6811427f6e8fc.
+---
+ include/linux/damon.h | 10 ----------
+ mm/damon/core.c       | 13 -------------
+ 2 files changed, 23 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index aade1fbedb48..b17e808a9cae 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -31,22 +31,12 @@ struct damon_addr_range {
+  * @sampling_addr:	Address of the sample for the next access check.
+  * @nr_accesses:	Access frequency of this region.
+  * @list:		List head for siblings.
+- * @age:		Age of this region.
+- *
+- * @age is initially zero, increased for each aggregation interval, and reset
+- * to zero again if the access frequency is significantly changed.  If two
+- * regions are merged into a new region, both @nr_accesses and @age of the new
+- * region are set as region size-weighted average of those of the two regions.
+  */
+ struct damon_region {
+ 	struct damon_addr_range ar;
+ 	unsigned long sampling_addr;
+ 	unsigned int nr_accesses;
+ 	struct list_head list;
+-
+-	unsigned int age;
+-/* private: Internal value for age calculation. */
+-	unsigned int last_nr_accesses;
+ };
+ 
+ /**
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 00aae299e80d..cad2b4cee39d 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -40,9 +40,6 @@ struct damon_region *damon_new_region(unsigned long start, unsigned long end)
+ 	region->nr_accesses = 0;
+ 	INIT_LIST_HEAD(&region->list);
+ 
+-	region->age = 0;
+-	region->last_nr_accesses = 0;
+-
+ 	return region;
+ }
+ 
+@@ -443,7 +440,6 @@ static void kdamond_reset_aggregated(struct damon_ctx *c)
+ 
+ 		damon_for_each_region(r, t) {
+ 			trace_damon_aggregated(t, r, damon_nr_regions(t));
+-			r->last_nr_accesses = r->nr_accesses;
+ 			r->nr_accesses = 0;
+ 		}
+ 	}
+@@ -461,7 +457,6 @@ static void damon_merge_two_regions(struct damon_region *l,
+ 
+ 	l->nr_accesses = (l->nr_accesses * sz_l + r->nr_accesses * sz_r) /
+ 			(sz_l + sz_r);
+-	l->age = (l->age * sz_l + r->age * sz_r) / (sz_l + sz_r);
+ 	l->ar.end = r->ar.end;
+ 	damon_destroy_region(r);
+ }
+@@ -481,11 +476,6 @@ static void damon_merge_regions_of(struct damon_target *t, unsigned int thres,
+ 	struct damon_region *r, *prev = NULL, *next;
+ 
+ 	damon_for_each_region_safe(r, next, t) {
+-		if (diff_of(r->nr_accesses, r->last_nr_accesses) > thres)
+-			r->age = 0;
+-		else
+-			r->age++;
+-
+ 		if (prev && prev->ar.end == r->ar.start &&
+ 		    diff_of(prev->nr_accesses, r->nr_accesses) <= thres &&
+ 		    sz_damon_region(prev) + sz_damon_region(r) <= sz_limit)
+@@ -532,9 +522,6 @@ static void damon_split_region_at(struct damon_ctx *ctx,
+ 
+ 	r->ar.end = new->ar.start;
+ 
+-	new->age = r->age;
+-	new->last_nr_accesses = r->last_nr_accesses;
+-
+ 	damon_insert_region(new, r, damon_next_region(r));
+ }
+ 
+-- 
+2.32.0
+

@@ -1,0 +1,47 @@
+From 0088711a44931d3eca1fbadf5ccfb39b810de3d3 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 20 Jan 2021 14:20:47 +0100
+Subject: arm64: entry: Add annotation when switching to/from the irq stack
+
+Handling of interrupts is done on a separate stack. The stack switch
+can confuse objtool.
+
+When starting interrupt handling, the only valid assumption is that the
+stack pointer points to a valid address. After handling an interrupt,
+all that is known is that the stack pointer points to a pt_regs frame.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/entry.S | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index 2c51b8a59c75..098a0ecb1ca2 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -462,6 +462,13 @@ SYM_CODE_END(__swpan_exit_el0)
+ #endif
+ 
+ 9998:
++	/*
++         * The irq stack might either have no content or already contain a
++         * pt_regs frame. Objtool currently does not support instructions that
++         * can have different stack states, so lets pretend we always have
++         * a clean stack.
++	 */
++	UNWIND_HINT_FUNC
+ 	.endm
+ 
+ 	/*
+@@ -474,6 +481,8 @@ SYM_CODE_END(__swpan_exit_el0)
+ #ifdef CONFIG_SHADOW_CALL_STACK
+ 	mov	scs_sp, x24
+ #endif
++	/* Switch back to the stack that had the PT regs */
++	UNWIND_HINT_REGS
+ 	.endm
+ 
+ /* GPRs used by entry code */
+-- 
+2.32.0
+

@@ -1,0 +1,42 @@
+From 3cb72e00529988f1c8d6fb1676a346f9de576ac4 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 13 Oct 2020 21:36:13 +0000
+Subject: lustre: add time_t define
+
+time_t is gone in more recent kernels (> 5.5). However, it is used in
+the lustre code.
+
+The upstream lustre code has undergone a lot of time type changes since
+2.10 (which is the branch we're still using), so a full backport
+of all those changes is not advisable.
+
+Instead, just add a time_t define in the lustre code.
+
+This will only work on 64bit kernels, so error out if __BITS_PER_LONG
+is not 64.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/libcfs/include/libcfs/linux/linux-time.h      | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-time.h b/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-time.h
+index 64613de7bd6a..cc0f42d6360d 100644
+--- a/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-time.h
++++ b/drivers/staging/lustrefsx/libcfs/include/libcfs/linux/linux-time.h
+@@ -143,6 +143,12 @@ static inline struct timespec timespec64_to_timespec(const struct timespec64 ts6
+ 
+ #endif /* HAVE_TIMESPEC64 */
+ 
++#if __BITS_PER_LONG == 64
++#define time_t long
++#else
++#error "lustre is not supported on 32bit"
++#endif
++
+ #ifndef HAVE_KTIME_ADD
+ # define ktime_add(lhs, rhs) ({ (ktime_t){ .tv64 = (lhs).tv64 + (rhs).tv64 }; })
+ #endif /* !HAVE_KTIME_ADD */
+-- 
+2.32.0
+

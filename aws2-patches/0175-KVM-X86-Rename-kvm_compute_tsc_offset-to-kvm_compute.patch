@@ -1,0 +1,69 @@
+From 33a04f7556f3ce81389ab6ab4fe4d04a7f11e6aa Mon Sep 17 00:00:00 2001
+From: Ilias Stamatis <ilstam@amazon.com>
+Date: Wed, 26 May 2021 19:44:10 +0100
+Subject: KVM: X86: Rename kvm_compute_tsc_offset() to
+ kvm_compute_l1_tsc_offset()
+
+All existing code uses kvm_compute_tsc_offset() passing L1 TSC values to
+it. Let's document this by renaming it to kvm_compute_l1_tsc_offset().
+
+Signed-off-by: Ilias Stamatis <ilstam@amazon.com>
+Reviewed-by: Maxim Levitsky <mlevitsk@redhat.com>
+Message-Id: <20210526184418.28881-4-ilstam@amazon.com>
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+---
+ arch/x86/kvm/x86.c | 10 +++++-----
+ 1 file changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/arch/x86/kvm/x86.c b/arch/x86/kvm/x86.c
+index b46db8248099..fef8dedda647 100644
+--- a/arch/x86/kvm/x86.c
++++ b/arch/x86/kvm/x86.c
+@@ -2237,7 +2237,7 @@ u64 kvm_scale_tsc(struct kvm_vcpu *vcpu, u64 tsc)
+ }
+ EXPORT_SYMBOL_GPL(kvm_scale_tsc);
+ 
+-static u64 kvm_compute_tsc_offset(struct kvm_vcpu *vcpu, u64 target_tsc)
++static u64 kvm_compute_l1_tsc_offset(struct kvm_vcpu *vcpu, u64 target_tsc)
+ {
+ 	u64 tsc;
+ 
+@@ -2281,7 +2281,7 @@ static void kvm_synchronize_tsc(struct kvm_vcpu *vcpu, u64 data)
+ 	bool synchronizing = false;
+ 
+ 	raw_spin_lock_irqsave(&kvm->arch.tsc_write_lock, flags);
+-	offset = kvm_compute_tsc_offset(vcpu, data);
++	offset = kvm_compute_l1_tsc_offset(vcpu, data);
+ 	ns = get_kvmclock_base_ns();
+ 	elapsed = ns - kvm->arch.last_tsc_nsec;
+ 
+@@ -2320,7 +2320,7 @@ static void kvm_synchronize_tsc(struct kvm_vcpu *vcpu, u64 data)
+ 		} else {
+ 			u64 delta = nsec_to_cycles(vcpu, elapsed);
+ 			data += delta;
+-			offset = kvm_compute_tsc_offset(vcpu, data);
++			offset = kvm_compute_l1_tsc_offset(vcpu, data);
+ 		}
+ 		matched = true;
+ 		already_matched = (vcpu->arch.this_tsc_generation == kvm->arch.cur_tsc_generation);
+@@ -3181,7 +3181,7 @@ int kvm_set_msr_common(struct kvm_vcpu *vcpu, struct msr_data *msr_info)
+ 		if (msr_info->host_initiated) {
+ 			kvm_synchronize_tsc(vcpu, data);
+ 		} else {
+-			u64 adj = kvm_compute_tsc_offset(vcpu, data) - vcpu->arch.l1_tsc_offset;
++			u64 adj = kvm_compute_l1_tsc_offset(vcpu, data) - vcpu->arch.l1_tsc_offset;
+ 			adjust_tsc_offset_guest(vcpu, adj);
+ 			vcpu->arch.ia32_tsc_adjust_msr += adj;
+ 		}
+@@ -4019,7 +4019,7 @@ void kvm_arch_vcpu_load(struct kvm_vcpu *vcpu, int cpu)
+ 			mark_tsc_unstable("KVM discovered backwards TSC");
+ 
+ 		if (kvm_check_tsc_unstable()) {
+-			u64 offset = kvm_compute_tsc_offset(vcpu,
++			u64 offset = kvm_compute_l1_tsc_offset(vcpu,
+ 						vcpu->arch.last_guest_tsc);
+ 			kvm_vcpu_write_tsc_offset(vcpu, offset);
+ 			vcpu->arch.tsc_catchup = 1;
+-- 
+2.32.0
+

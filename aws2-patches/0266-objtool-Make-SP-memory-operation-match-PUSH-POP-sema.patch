@@ -1,0 +1,66 @@
+From 10a63b9c8069ffff375771679f6859b0cd0d4f41 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 14 Oct 2020 08:38:02 +0100
+Subject: objtool: Make SP memory operation match PUSH/POP semantics
+
+Architectures without PUSH/POP instructions will always access the stack
+though memory operations (SRC/DEST_INDIRECT). Make those operations have
+the same effect on the CFA as PUSH/POP, with no stack pointer
+modification.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+Acked-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+(cherry picked from commit 201ef5a974e24112953b74cc9f33dcfc4cbcc1cb)
+---
+ tools/objtool/check.c | 20 ++++++++++++++++++++
+ 1 file changed, 20 insertions(+)
+
+diff --git a/tools/objtool/check.c b/tools/objtool/check.c
+index d049ce732f9f..faf1cfb20c6e 100644
+--- a/tools/objtool/check.c
++++ b/tools/objtool/check.c
+@@ -2428,6 +2428,14 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi,
+ 			break;
+ 
+ 		case OP_SRC_REG_INDIRECT:
++			if (!cfi->drap && op->dest.reg == cfa->base &&
++			    op->dest.reg == CFI_BP) {
++
++				/* mov disp(%rsp), %rbp */
++				cfa->base = CFI_SP;
++				cfa->offset = cfi->stack_size;
++			}
++
+ 			if (cfi->drap && op->src.reg == CFI_BP &&
+ 			    op->src.offset == cfi->drap_offset) {
+ 
+@@ -2449,6 +2457,12 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi,
+ 				/* mov disp(%rbp), %reg */
+ 				/* mov disp(%rsp), %reg */
+ 				restore_reg(cfi, op->dest.reg);
++
++			} else if (op->src.reg == CFI_SP &&
++				   op->src.offset == regs[op->dest.reg].offset + cfi->stack_size) {
++
++				/* mov disp(%rsp), %reg */
++				restore_reg(cfi, op->dest.reg);
+ 			}
+ 
+ 			break;
+@@ -2526,6 +2540,12 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi,
+ 			/* mov reg, disp(%rsp) */
+ 			save_reg(cfi, op->src.reg, CFI_CFA,
+ 				 op->dest.offset - cfi->cfa.offset);
++
++		} else if (op->dest.reg == CFI_SP) {
++
++			/* mov reg, disp(%rsp) */
++			save_reg(cfi, op->src.reg, CFI_CFA,
++				 op->dest.offset - cfi->stack_size);
+ 		}
+ 
+ 		break;
+-- 
+2.32.0
+

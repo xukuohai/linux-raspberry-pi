@@ -1,0 +1,54 @@
+From 52397b538c780eb3013c413a9db1d2d51af9d841 Mon Sep 17 00:00:00 2001
+From: Mel Gorman <mgorman@techsingularity.net>
+Date: Fri, 20 Nov 2020 09:06:27 +0000
+Subject: sched/numa: Rename nr_running and break out the magic number
+
+This is simply a preparation patch to make the following patches easier
+to read. No functional change.
+
+Signed-off-by: Mel Gorman <mgorman@techsingularity.net>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Reviewed-by: Vincent Guittot <vincent.guittot@linaro.org>
+Link: https://lkml.kernel.org/r/20201120090630.3286-2-mgorman@techsingularity.net
+---
+ kernel/sched/fair.c | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/kernel/sched/fair.c b/kernel/sched/fair.c
+index bca0efc03a51..59585de99612 100644
+--- a/kernel/sched/fair.c
++++ b/kernel/sched/fair.c
+@@ -1560,7 +1560,7 @@ struct task_numa_env {
+ static unsigned long cpu_load(struct rq *rq);
+ static unsigned long cpu_runnable(struct rq *rq);
+ static unsigned long cpu_util(int cpu);
+-static inline long adjust_numa_imbalance(int imbalance, int nr_running);
++static inline long adjust_numa_imbalance(int imbalance, int dst_running);
+ 
+ static inline enum
+ numa_type numa_classify(unsigned int imbalance_pct,
+@@ -9042,7 +9042,9 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
+ 	}
+ }
+ 
+-static inline long adjust_numa_imbalance(int imbalance, int nr_running)
++#define NUMA_IMBALANCE_MIN 2
++
++static inline long adjust_numa_imbalance(int imbalance, int dst_running)
+ {
+ 	unsigned int imbalance_min;
+ 
+@@ -9050,8 +9052,8 @@ static inline long adjust_numa_imbalance(int imbalance, int nr_running)
+ 	 * Allow a small imbalance based on a simple pair of communicating
+ 	 * tasks that remain local when the source domain is almost idle.
+ 	 */
+-	imbalance_min = 2;
+-	if (nr_running <= imbalance_min)
++	imbalance_min = NUMA_IMBALANCE_MIN;
++	if (dst_running <= imbalance_min)
+ 		return 0;
+ 
+ 	return imbalance;
+-- 
+2.32.0
+

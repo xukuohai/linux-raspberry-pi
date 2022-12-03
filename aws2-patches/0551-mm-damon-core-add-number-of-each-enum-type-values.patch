@@ -1,0 +1,57 @@
+From aee716657b37a7dc561c7a01d01d090fc4120cc5 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 22 Mar 2022 14:49:24 -0700
+Subject: mm/damon/core: add number of each enum type values
+
+This commit declares the number of legal values for each DAMON enum types
+to make traversals of such DAMON enum types easy and safe.
+
+Link: https://lkml.kernel.org/r/20220228081314.5770-3-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Cc: David Rientjes <rientjes@google.com>
+Cc: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+Cc: Jonathan Corbet <corbet@lwn.net>
+Cc: Shuah Khan <skhan@linuxfoundation.org>
+Cc: Xin Hao <xhao@linux.alibaba.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ include/linux/damon.h | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index f8e99e47d747..f23cbfa4248d 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -87,6 +87,7 @@ struct damon_target {
+  * @DAMOS_HUGEPAGE:	Call ``madvise()`` for the region with MADV_HUGEPAGE.
+  * @DAMOS_NOHUGEPAGE:	Call ``madvise()`` for the region with MADV_NOHUGEPAGE.
+  * @DAMOS_STAT:		Do nothing but count the stat.
++ * @NR_DAMOS_ACTIONS:	Total number of DAMOS actions
+  */
+ enum damos_action {
+ 	DAMOS_WILLNEED,
+@@ -95,6 +96,7 @@ enum damos_action {
+ 	DAMOS_HUGEPAGE,
+ 	DAMOS_NOHUGEPAGE,
+ 	DAMOS_STAT,		/* Do nothing but only record the stat */
++	NR_DAMOS_ACTIONS,
+ };
+ 
+ /**
+@@ -157,10 +159,12 @@ struct damos_quota {
+  *
+  * @DAMOS_WMARK_NONE:		Ignore the watermarks of the given scheme.
+  * @DAMOS_WMARK_FREE_MEM_RATE:	Free memory rate of the system in [0,1000].
++ * @NR_DAMOS_WMARK_METRICS:	Total number of DAMOS watermark metrics
+  */
+ enum damos_wmark_metric {
+ 	DAMOS_WMARK_NONE,
+ 	DAMOS_WMARK_FREE_MEM_RATE,
++	NR_DAMOS_WMARK_METRICS,
+ };
+ 
+ /**
+-- 
+2.32.0
+

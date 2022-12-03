@@ -1,0 +1,30 @@
+From 295b2323d57971c8d4d6133182a0428547d88983 Mon Sep 17 00:00:00 2001
+From: Hao Luo <haoluo@google.com>
+Date: Thu, 16 Dec 2021 16:31:49 -0800
+Subject: bpf: Convert PTR_TO_MEM_OR_NULL to composable types.
+
+Remove PTR_TO_MEM_OR_NULL and replace it with PTR_TO_MEM combined with
+flag PTR_MAYBE_NULL.
+
+Signed-off-by: Hao Luo <haoluo@google.com>
+Signed-off-by: Alexei Starovoitov <ast@kernel.org>
+Link: https://lore.kernel.org/bpf/20211217003152.48334-7-haoluo@google.com
+---
+ include/linux/bpf.h | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index 6872758566ea..e6c71590d0b9 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -457,7 +457,6 @@ enum bpf_reg_type {
+ 	PTR_TO_SOCK_COMMON_OR_NULL	= PTR_MAYBE_NULL | PTR_TO_SOCK_COMMON,
+ 	PTR_TO_TCP_SOCK_OR_NULL		= PTR_MAYBE_NULL | PTR_TO_TCP_SOCK,
+ 	PTR_TO_BTF_ID_OR_NULL		= PTR_MAYBE_NULL | PTR_TO_BTF_ID,
+-	PTR_TO_MEM_OR_NULL		= PTR_MAYBE_NULL | PTR_TO_MEM,
+ 
+ 	/* This must be the last entry. Its purpose is to ensure the enum is
+ 	 * wide enough to hold the higher bits reserved for bpf_type_flag.
+-- 
+2.32.0
+

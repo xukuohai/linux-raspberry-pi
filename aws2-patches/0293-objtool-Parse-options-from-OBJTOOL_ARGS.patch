@@ -1,0 +1,78 @@
+From dbf7472688ae2909bb15af35eedb1613d2bd1e20 Mon Sep 17 00:00:00 2001
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Fri, 26 Feb 2021 11:32:30 +0100
+Subject: objtool: Parse options from OBJTOOL_ARGS
+
+Teach objtool to parse options from the OBJTOOL_ARGS environment
+variable.
+
+This enables things like:
+
+  $ OBJTOOL_ARGS="--backup" make O=defconfig-build/ kernel/ponies.o
+
+to obtain both defconfig-build/kernel/ponies.o{,.orig} and easily
+inspect what objtool actually did.
+
+Suggested-by: Borislav Petkov <bp@alien8.de>
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Signed-off-by: Ingo Molnar <mingo@kernel.org>
+Acked-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Link: https://lkml.kernel.org/r/20210226110004.252553847@infradead.org
+(cherry picked from commit 900b4df347bbac4874149a226143a556909faba8)
+---
+ tools/objtool/builtin-check.c | 25 +++++++++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/tools/objtool/builtin-check.c b/tools/objtool/builtin-check.c
+index e3b674759d56..35081fe37320 100644
+--- a/tools/objtool/builtin-check.c
++++ b/tools/objtool/builtin-check.c
+@@ -15,6 +15,7 @@
+ 
+ #include <subcmd/parse-options.h>
+ #include <string.h>
++#include <stdlib.h>
+ #include <objtool/builtin.h>
+ #include <objtool/objtool.h>
+ 
+@@ -26,6 +27,11 @@ static const char * const check_usage[] = {
+ 	NULL,
+ };
+ 
++static const char * const env_usage[] = {
++	"OBJTOOL_ARGS=\"<options>\"",
++	NULL,
++};
++
+ const struct option check_options[] = {
+ 	OPT_BOOLEAN('f', "no-fp", &no_fp, "Skip frame pointer validation"),
+ 	OPT_BOOLEAN('u', "no-unreachable", &no_unreachable, "Skip 'unreachable instruction' warnings"),
+@@ -47,6 +53,25 @@ const struct option check_options[] = {
+ 
+ int cmd_parse_options(int argc, const char **argv, const char * const usage[])
+ {
++	const char *envv[16] = { };
++	char *env;
++	int envc;
++
++	env = getenv("OBJTOOL_ARGS");
++	if (env) {
++		envv[0] = "OBJTOOL_ARGS";
++		for (envc = 1; envc < ARRAY_SIZE(envv); ) {
++			envv[envc++] = env;
++			env = strchr(env, ' ');
++			if (!env)
++				break;
++			*env = '\0';
++			env++;
++		}
++
++		parse_options(envc, envv, check_options, env_usage, 0);
++	}
++
+ 	argc = parse_options(argc, argv, check_options, usage, 0);
+ 	if (argc != 1)
+ 		usage_with_options(usage, check_options);
+-- 
+2.32.0
+

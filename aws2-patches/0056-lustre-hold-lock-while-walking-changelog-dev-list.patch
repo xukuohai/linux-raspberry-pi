@@ -1,0 +1,92 @@
+From 8b087542979572d36feaeba169e1230de9c48f5f Mon Sep 17 00:00:00 2001
+From: Andy Strohman <astroh@amazon.com>
+Date: Wed, 4 Dec 2019 20:04:51 +0000
+Subject: lustre: hold lock while walking changelog dev list
+
+This patch came from the 2.10.5 branch of AmazonFSxLustreClient repo.
+
+The patch from that repo is:
+
+    mdc: hold lock while walking changelog dev list (LU-12566)
+
+    Prevent the following GPF which is causing stuck processes,
+    when running mount and umount concurrently on the same host.
+
+        general protection fault: 0000 [#1] SMP PTI
+        ...
+        RIP: 0010:mdc_changelog_cdev_finish+0x3f/0x1b9 [mdc]
+        ...
+        Call Trace:
+           mdc_precleanup+0x2a/0x3c0 [mdc]
+
+    Original patch was:
+
+        LU-12566 mdc: hold lock while walking changelog dev list
+
+        In mdc_changelog_cdev_finish() we need chlg_registered_dev_lock
+        while walking and changing entries on the chlog_registered_devs
+        and ced_obds lists in chlg_registered_dev_find_by_obd().
+
+        Move the calling of chlg_registered_dev_find_by_obd() under the
+        mutex, and add assertions to the places where the lists are walked
+        and changed that the mutex is held.
+
+        Lustre-change: https://review.whamcloud.com/35668
+        Lustre-commit: a260c530801db7f58efa93b774f06b0ce72649a3
+
+        Fixes: 1d40214d96dd ("LU-7659 mdc: expose changelog through char devices")
+        Signed-off-by: Andreas Dilger <adilger@whamcloud.com>
+        Change-Id: Ib62fdff87cde6a4bcfb9bea24a2ea72a933ebbe5
+        Signed-off-by: Minh Diep <mdiep@whamcloud.com>
+        Reviewed-on: https://review.whamcloud.com/35835
+
+Signed-off-by: Andy Strohman <astroh@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/mdc/mdc_changelog.c | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/mdc/mdc_changelog.c b/drivers/staging/lustrefsx/lustre/mdc/mdc_changelog.c
+index 8431b1c26622..c99a3bacf24d 100644
+--- a/drivers/staging/lustrefsx/lustre/mdc/mdc_changelog.c
++++ b/drivers/staging/lustrefsx/lustre/mdc/mdc_changelog.c
+@@ -612,6 +612,7 @@ chlg_registered_dev_find_by_name(const char *name)
+ {
+ 	struct chlg_registered_dev *dit;
+ 
++	LASSERT(mutex_is_locked(&chlg_registered_dev_lock));
+ 	list_for_each_entry(dit, &chlg_registered_devices, ced_link)
+ 		if (strcmp(name, dit->ced_name) == 0)
+ 			return dit;
+@@ -630,6 +631,7 @@ chlg_registered_dev_find_by_obd(const struct obd_device *obd)
+ 	struct chlg_registered_dev *dit;
+ 	struct obd_device *oit;
+ 
++	LASSERT(mutex_is_locked(&chlg_registered_dev_lock));
+ 	list_for_each_entry(dit, &chlg_registered_devices, ced_link)
+ 		list_for_each_entry(oit, &dit->ced_obds,
+ 				    u.cli.cl_chg_dev_linkage)
+@@ -702,6 +704,7 @@ static void chlg_dev_clear(struct kref *kref)
+ 						      ced_refs);
+ 	ENTRY;
+ 
++	LASSERT(mutex_is_locked(&chlg_registered_dev_lock));
+ 	list_del(&entry->ced_link);
+ 	misc_deregister(&entry->ced_misc);
+ 	OBD_FREE_PTR(entry);
+@@ -713,10 +716,11 @@ static void chlg_dev_clear(struct kref *kref)
+  */
+ void mdc_changelog_cdev_finish(struct obd_device *obd)
+ {
+-	struct chlg_registered_dev *dev = chlg_registered_dev_find_by_obd(obd);
+-	ENTRY;
++	struct chlg_registered_dev *dev;
+ 
++	ENTRY;
+ 	mutex_lock(&chlg_registered_dev_lock);
++	dev = chlg_registered_dev_find_by_obd(obd);
+ 	list_del_init(&obd->u.cli.cl_chg_dev_linkage);
+ 	kref_put(&dev->ced_refs, chlg_dev_clear);
+ 	mutex_unlock(&chlg_registered_dev_lock);
+-- 
+2.32.0
+

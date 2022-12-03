@@ -1,0 +1,63 @@
+From 5393246023954d9d86eaf091ff8f66432cd694b7 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 22 Mar 2022 14:48:58 -0700
+Subject: mm/damon/dbgfs: use damon_select_ops() instead of
+ damon_{v,p}a_set_operations()
+
+This commit makes DAMON debugfs interface to select the registered
+monitoring operations for the physical address space or virtual address
+spaces depending on user requests instead of setting it on its own.  Note
+that DAMON debugfs interface is still dependent to DAMON_VADDR with this
+change, because it is also using its symbol, 'damon_va_target_valid'.
+
+Link: https://lkml.kernel.org/r/20220215184603.1479-6-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Cc: David Rientjes <rientjes@google.com>
+Cc: Xin Hao <xhao@linux.alibaba.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/dbgfs.c | 16 +++++++++++++---
+ 1 file changed, 13 insertions(+), 3 deletions(-)
+
+diff --git a/mm/damon/dbgfs.c b/mm/damon/dbgfs.c
+index 719278a8cc5e..8bf9e38b60f4 100644
+--- a/mm/damon/dbgfs.c
++++ b/mm/damon/dbgfs.c
+@@ -474,12 +474,18 @@ static ssize_t dbgfs_target_ids_write(struct file *file,
+ 
+ 	/* remove previously set targets */
+ 	dbgfs_set_targets(ctx, 0, NULL);
++	if (!nr_targets) {
++		ret = count;
++		goto unlock_out;
++	}
+ 
+ 	/* Configure the context for the address space type */
+ 	if (id_is_pid)
+-		damon_va_set_operations(ctx);
++		ret = damon_select_ops(ctx, DAMON_OPS_VADDR);
+ 	else
+-		damon_pa_set_operations(ctx);
++		ret = damon_select_ops(ctx, DAMON_OPS_PADDR);
++	if (ret)
++		goto unlock_out;
+ 
+ 	ret = dbgfs_set_targets(ctx, nr_targets, target_pids);
+ 	if (!ret)
+@@ -735,7 +741,11 @@ static struct damon_ctx *dbgfs_new_ctx(void)
+ 	if (!ctx)
+ 		return NULL;
+ 
+-	damon_va_set_operations(ctx);
++	if (damon_select_ops(ctx, DAMON_OPS_VADDR) && damon_select_ops(ctx,
++				DAMON_OPS_PADDR)) {
++		damon_destroy_ctx(ctx);
++		return NULL;
++	}
+ 	ctx->callback.before_terminate = dbgfs_before_terminate;
+ 	return ctx;
+ }
+-- 
+2.32.0
+

@@ -1,0 +1,69 @@
+From 0c3f2fe1a1920cf208c8fb8682384e25798cdd6b Mon Sep 17 00:00:00 2001
+From: Hailong Tu <tuhailong@gmail.com>
+Date: Fri, 29 Apr 2022 14:37:00 -0700
+Subject: mm/damon/reclaim: fix the timer always stays active
+
+The timer stays active even if the reclaim mechanism is never enabled.  It
+is unnecessary overhead can be completely avoided by using
+module_param_cb() for enabled flag.
+
+Link: https://lkml.kernel.org/r/20220421125910.1052459-1-tuhailong@gmail.com
+Signed-off-by: Hailong Tu <tuhailong@gmail.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/reclaim.c | 27 +++++++++++++++++++++++++--
+ 1 file changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/mm/damon/reclaim.c b/mm/damon/reclaim.c
+index e34c4d0c4d93..75cfd96a6060 100644
+--- a/mm/damon/reclaim.c
++++ b/mm/damon/reclaim.c
+@@ -28,7 +28,6 @@
+  * this.
+  */
+ static bool enabled __read_mostly;
+-module_param(enabled, bool, 0600);
+ 
+ /*
+  * Time threshold for cold memory regions identification in microseconds.
+@@ -358,11 +357,35 @@ static void damon_reclaim_timer_fn(struct work_struct *work)
+ 			enabled = last_enabled;
+ 	}
+ 
+-	schedule_delayed_work(&damon_reclaim_timer,
++	if (enabled)
++		schedule_delayed_work(&damon_reclaim_timer,
+ 			msecs_to_jiffies(ENABLE_CHECK_INTERVAL_MS));
+ }
+ static DECLARE_DELAYED_WORK(damon_reclaim_timer, damon_reclaim_timer_fn);
+ 
++static int enabled_store(const char *val,
++		const struct kernel_param *kp)
++{
++	int rc = param_set_bool(val, kp);
++
++	if (rc < 0)
++		return rc;
++
++	if (enabled)
++		schedule_delayed_work(&damon_reclaim_timer, 0);
++
++	return 0;
++}
++
++static const struct kernel_param_ops enabled_param_ops = {
++	.set = enabled_store,
++	.get = param_get_bool,
++};
++
++module_param_cb(enabled, &enabled_param_ops, &enabled, 0600);
++MODULE_PARM_DESC(enabled,
++	"Enable or disable DAMON_RECLAIM (default: disabled)");
++
+ static int damon_reclaim_after_aggregation(struct damon_ctx *c)
+ {
+ 	struct damos *s;
+-- 
+2.32.0
+

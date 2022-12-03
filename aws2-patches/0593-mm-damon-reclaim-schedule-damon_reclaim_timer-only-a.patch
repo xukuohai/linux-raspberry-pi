@@ -1,0 +1,65 @@
+From 215811e0c14a7aba2c1ddeb07653e6d8a75969b6 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Sat, 4 Jun 2022 19:50:51 +0000
+Subject: mm/damon/reclaim: schedule 'damon_reclaim_timer' only after
+ 'system_wq' is initialized
+
+Commit 059342d1dd4e ("mm/damon/reclaim: fix the timer always stays
+active") made DAMON_RECLAIM's 'enabled' parameter store callback,
+'enabled_store()', to schedule 'damon_reclaim_timer'.  The scheduling uses
+'system_wq', which is initialized in 'workqueue_init_early()'.  As kernel
+parameters parsing function ('parse_args()') is called before
+'workqueue_init_early()', 'enabled_store()' can be executed before
+'workqueue_init_early()' and end up accessing the uninitialized
+'system_wq'.  As a result, the booting hang[1].  This commit fixes the
+issue by checking if the initialization is done before scheduling the
+timer.
+
+[1] https://lkml.kernel.org/20220604192222.1488-1-sj@kernel.org/
+
+Link: https://lkml.kernel.org/r/20220604195051.1589-1-sj@kernel.org
+Fixes: 059342d1dd4e ("mm/damon/reclaim: fix the timer always stays active")
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Reported-by: Greg White <gwhite@kupulau.com>
+Cc: Hailong Tu <tuhailong@gmail.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/reclaim.c | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/mm/damon/reclaim.c b/mm/damon/reclaim.c
+index 8efbfb24f3a1..4b07c29effe9 100644
+--- a/mm/damon/reclaim.c
++++ b/mm/damon/reclaim.c
+@@ -374,6 +374,8 @@ static void damon_reclaim_timer_fn(struct work_struct *work)
+ }
+ static DECLARE_DELAYED_WORK(damon_reclaim_timer, damon_reclaim_timer_fn);
+ 
++static bool damon_reclaim_initialized;
++
+ static int enabled_store(const char *val,
+ 		const struct kernel_param *kp)
+ {
+@@ -382,6 +384,10 @@ static int enabled_store(const char *val,
+ 	if (rc < 0)
+ 		return rc;
+ 
++	/* system_wq might not initialized yet */
++	if (!damon_reclaim_initialized)
++		return rc;
++
+ 	if (enabled)
+ 		schedule_delayed_work(&damon_reclaim_timer, 0);
+ 
+@@ -449,6 +455,8 @@ static int __init damon_reclaim_init(void)
+ 	damon_add_target(ctx, target);
+ 
+ 	schedule_delayed_work(&damon_reclaim_timer, 0);
++
++	damon_reclaim_initialized = true;
+ 	return 0;
+ }
+ 
+-- 
+2.32.0
+

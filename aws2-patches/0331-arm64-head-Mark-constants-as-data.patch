@@ -1,0 +1,40 @@
+From a74beb91384958085d385fcdf82d89200e1736f1 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Sun, 29 Mar 2020 13:46:19 +0100
+Subject: arm64: head: Mark constants as data
+
+Add data annotations to constants part of the image header.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/head.S | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
+index 51f1a0620948..62d0b6648feb 100644
+--- a/arch/arm64/kernel/head.S
++++ b/arch/arm64/kernel/head.S
+@@ -62,9 +62,10 @@
+ 	/*
+ 	 * DO NOT MODIFY. Image header expected by Linux boot-loaders.
+ 	 */
+-	efi_signature_nop			// special NOP to identity as PE/COFF executable
++SYM_DATA_LOCAL(efi_nop, efi_signature_nop)	// special NOP to identity as PE/COFF executable
+ 	b	primary_entry			// branch to kernel start, magic
+-	.quad	0				// Image load offset from start of RAM, little-endian
++SYM_DATA_LOCAL(_zero_reserved, .quad	0)	// Image load offset from start of RAM, little-endian
++SYM_DATA_START_LOCAL(_arm64_common_header)
+ 	le64sym	_kernel_size_le			// Effective size of kernel image, little-endian
+ 	le64sym	_kernel_flags_le		// Informative flags, little-endian
+ 	.quad	0				// reserved
+@@ -72,6 +73,7 @@
+ 	.quad	0				// reserved
+ 	.ascii	ARM64_IMAGE_MAGIC		// Magic number
+ 	.long	.Lpe_header_offset		// Offset to the PE header.
++SYM_DATA_END(_arm64_common_header)
+ 
+ 	__EFI_PE_HEADER
+ 
+-- 
+2.32.0
+

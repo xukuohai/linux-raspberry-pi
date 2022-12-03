@@ -1,0 +1,54 @@
+From d08bc49673c868157038e3341d7d385712ab78f4 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Fri, 14 Feb 2020 17:38:19 +0000
+Subject: arm64: insn: Add load/store decoding helpers
+
+Provide some function to group different load/store instructions.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/include/asm/insn.h | 28 ++++++++++++++++++++++++++++
+ 1 file changed, 28 insertions(+)
+
+diff --git a/arch/arm64/include/asm/insn.h b/arch/arm64/include/asm/insn.h
+index 4177a744d263..c9e95848042b 100644
+--- a/arch/arm64/include/asm/insn.h
++++ b/arch/arm64/include/asm/insn.h
+@@ -413,6 +413,34 @@ static inline bool aarch64_insn_is_barrier(u32 insn)
+ 	       aarch64_insn_is_pssbb(insn);
+ }
+ 
++static inline bool aarch64_insn_is_store_single(u32 insn)
++{
++	return aarch64_insn_is_store_imm(insn) ||
++	       aarch64_insn_is_store_pre(insn) ||
++	       aarch64_insn_is_store_post(insn);
++}
++
++static inline bool aarch64_insn_is_store_pair(u32 insn)
++{
++	return aarch64_insn_is_stp(insn) ||
++	       aarch64_insn_is_stp_pre(insn) ||
++	       aarch64_insn_is_stp_post(insn);
++}
++
++static inline bool aarch64_insn_is_load_single(u32 insn)
++{
++	return aarch64_insn_is_load_imm(insn) ||
++	       aarch64_insn_is_load_pre(insn) ||
++	       aarch64_insn_is_load_post(insn);
++}
++
++static inline bool aarch64_insn_is_load_pair(u32 insn)
++{
++	return aarch64_insn_is_ldp(insn) ||
++	       aarch64_insn_is_ldp_pre(insn) ||
++	       aarch64_insn_is_ldp_post(insn);
++}
++
+ enum aarch64_insn_encoding_class aarch64_get_insn_class(u32 insn);
+ bool aarch64_insn_uses_literal(u32 insn);
+ bool aarch64_insn_is_branch(u32 insn);
+-- 
+2.32.0
+

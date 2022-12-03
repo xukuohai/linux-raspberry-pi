@@ -1,0 +1,59 @@
+From 269827bfa4cf14714815cf71a31740d5d3cfb6f7 Mon Sep 17 00:00:00 2001
+From: Trond Myklebust <trond.myklebust@hammerspace.com>
+Date: Sun, 1 Nov 2020 13:31:20 -0500
+Subject: NFS: Remove unnecessary kmap in nfs_readdir_xdr_to_array()
+
+The kmapped pointer is only used once per loop to check if we need to
+exit.
+
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+Reviewed-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Dave Wysochanski <dwysocha@redhat.com>
+(cherry picked from commit e762a639816015a70bb1af8ea4baf54f4facb591)
+---
+ fs/nfs/dir.c | 10 +++-------
+ 1 file changed, 3 insertions(+), 7 deletions(-)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index abf43fb6c0e8..1c2fe400344b 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -759,7 +759,6 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page,
+ 	struct page *pages[NFS_MAX_READDIR_PAGES];
+ 	struct nfs_entry entry;
+ 	struct file	*file = desc->file;
+-	struct nfs_cache_array *array;
+ 	int status = -ENOMEM;
+ 	unsigned int array_size = ARRAY_SIZE(pages);
+ 
+@@ -778,11 +777,9 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page,
+ 		goto out;
+ 	}
+ 
+-	array = kmap(page);
+-
+ 	status = nfs_readdir_alloc_pages(pages, array_size);
+ 	if (status < 0)
+-		goto out_release_array;
++		goto out_release_label;
+ 	do {
+ 		unsigned int pglen;
+ 		status = nfs_readdir_xdr_filler(pages, desc, &entry, file, inode);
+@@ -797,11 +794,10 @@ int nfs_readdir_xdr_to_array(nfs_readdir_descriptor_t *desc, struct page *page,
+ 		}
+ 
+ 		status = nfs_readdir_page_filler(desc, &entry, pages, page, pglen);
+-	} while (!status && !nfs_readdir_array_is_full(array));
++	} while (!status && nfs_readdir_page_needs_filling(page));
+ 
+ 	nfs_readdir_free_pages(pages, array_size);
+-out_release_array:
+-	kunmap(page);
++out_release_label:
+ 	nfs4_label_free(entry.label);
+ out:
+ 	nfs_free_fattr(entry.fattr);
+-- 
+2.32.0
+

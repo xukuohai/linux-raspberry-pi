@@ -1,0 +1,52 @@
+From 9477d67acd99630e1eed51339a23c7ef2ff006f2 Mon Sep 17 00:00:00 2001
+From: Oscar Salvador <osalvador@suse.de>
+Date: Tue, 4 May 2021 18:39:45 -0700
+Subject: acpi,memhotplug: enable MHP_MEMMAP_ON_MEMORY when supported
+
+Let the caller check whether it can pass MHP_MEMMAP_ON_MEMORY by
+checking mhp_supports_memmap_on_memory().  MHP_MEMMAP_ON_MEMORY can only
+be set in case ARCH_MHP_MEMMAP_ON_MEMORY_ENABLE is enabled, the
+architecture supports altmap, and the range to be added spans a single
+memory block.
+
+Link: https://lkml.kernel.org/r/20210421102701.25051-6-osalvador@suse.de
+Signed-off-by: Oscar Salvador <osalvador@suse.de>
+Reviewed-by: David Hildenbrand <david@redhat.com>
+Acked-by: Michal Hocko <mhocko@suse.com>
+Cc: Anshuman Khandual <anshuman.khandual@arm.com>
+Cc: Pavel Tatashin <pasha.tatashin@soleen.com>
+Cc: Vlastimil Babka <vbabka@suse.cz>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+(cherry picked from commit 4a3e5de9c4ec41bb0684b0d4e0c16abc39617d88)
+---
+ drivers/acpi/acpi_memhotplug.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/acpi/acpi_memhotplug.c b/drivers/acpi/acpi_memhotplug.c
+index b02fd51e5589..8cc195c4c861 100644
+--- a/drivers/acpi/acpi_memhotplug.c
++++ b/drivers/acpi/acpi_memhotplug.c
+@@ -171,6 +171,7 @@ static int acpi_memory_enable_device(struct acpi_memory_device *mem_device)
+ 	acpi_handle handle = mem_device->device->handle;
+ 	int result, num_enabled = 0;
+ 	struct acpi_memory_info *info;
++	mhp_t mhp_flags = MHP_NONE;
+ 	int node;
+ 
+ 	node = acpi_get_node(handle);
+@@ -194,8 +195,10 @@ static int acpi_memory_enable_device(struct acpi_memory_device *mem_device)
+ 		if (node < 0)
+ 			node = memory_add_physaddr_to_nid(info->start_addr);
+ 
++		if (mhp_supports_memmap_on_memory(info->length))
++			mhp_flags |= MHP_MEMMAP_ON_MEMORY;
+ 		result = __add_memory(node, info->start_addr, info->length,
+-				      MHP_NONE);
++				      mhp_flags);
+ 
+ 		/*
+ 		 * If the memory block has been used by the kernel, add_memory()
+-- 
+2.32.0
+

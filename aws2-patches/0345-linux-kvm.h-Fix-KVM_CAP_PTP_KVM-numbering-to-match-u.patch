@@ -1,0 +1,47 @@
+From 33dba71d154a0d85ad2abe9e084328c0ea6a5854 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Mon, 1 Nov 2021 16:49:06 -0700
+Subject: linux/kvm.h: Fix KVM_CAP_PTP_KVM numbering to match upstream
+
+When this patch went upstream the KVM_CAP_PTP_KVM number was 195, it was
+backported as 191, and it finally ended up being 198 upstream. This will cause
+issues if a guest uses a different number to the host as incorrect
+functionality will result.
+
+Update it to be 198 to match upstream to avoid this issue.
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+---
+ include/uapi/linux/kvm.h       | 2 +-
+ tools/include/uapi/linux/kvm.h | 2 +-
+ 2 files changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/include/uapi/linux/kvm.h b/include/uapi/linux/kvm.h
+index 797c40bbc31f..0d7350d1795b 100644
+--- a/include/uapi/linux/kvm.h
++++ b/include/uapi/linux/kvm.h
+@@ -1053,7 +1053,7 @@ struct kvm_ppc_resize_hpt {
+ #define KVM_CAP_X86_USER_SPACE_MSR 188
+ #define KVM_CAP_X86_MSR_FILTER 189
+ #define KVM_CAP_ENFORCE_PV_FEATURE_CPUID 190
+-#define KVM_CAP_PTP_KVM 191
++#define KVM_CAP_PTP_KVM 198
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+ 
+diff --git a/tools/include/uapi/linux/kvm.h b/tools/include/uapi/linux/kvm.h
+index 797c40bbc31f..0d7350d1795b 100644
+--- a/tools/include/uapi/linux/kvm.h
++++ b/tools/include/uapi/linux/kvm.h
+@@ -1053,7 +1053,7 @@ struct kvm_ppc_resize_hpt {
+ #define KVM_CAP_X86_USER_SPACE_MSR 188
+ #define KVM_CAP_X86_MSR_FILTER 189
+ #define KVM_CAP_ENFORCE_PV_FEATURE_CPUID 190
+-#define KVM_CAP_PTP_KVM 191
++#define KVM_CAP_PTP_KVM 198
+ 
+ #ifdef KVM_CAP_IRQ_ROUTING
+ 
+-- 
+2.32.0
+

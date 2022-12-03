@@ -1,0 +1,35 @@
+From 18e29dc3f71b2071934c7aae16696cb7daaec10d Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 4 Mar 2019 22:29:53 +0000
+Subject: lustre: adapt to struct posix_acl atomic_t -> refcount_t change
+
+In Linux >= 4.15, the posix_acl structure uses refcount_t instead of
+atomic_t. Make things work in both of these cases.
+
+Linux commit: 66717260545b ("posix_acl: convert posix_acl.a_refcount from
+atomic_t to refcount_t")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/llite/llite_lib.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+index da5664db3dd5..339dd8f1da4c 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+@@ -1459,7 +1459,11 @@ void ll_clear_inode(struct inode *inode)
+ #ifdef CONFIG_FS_POSIX_ACL
+ 	forget_all_cached_acls(inode);
+ 	if (lli->lli_posix_acl) {
++#ifdef HAVE_POSIX_ACL_REFCOUNT
++		LASSERT(refcount_read(&lli->lli_posix_acl->a_refcount) == 1);
++#else
+ 		LASSERT(atomic_read(&lli->lli_posix_acl->a_refcount) == 1);
++#endif
+ 		posix_acl_release(lli->lli_posix_acl);
+ 		lli->lli_posix_acl = NULL;
+ 	}
+-- 
+2.32.0
+

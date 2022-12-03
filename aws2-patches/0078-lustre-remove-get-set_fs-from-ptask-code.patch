@@ -1,0 +1,77 @@
+From dde2bb0600a85cdd0433cfd45691aa7db4a61bd8 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 22 Dec 2020 17:56:32 +0000
+Subject: lustre: remove get/set_fs from ptask code
+
+Setting USER_DS is hidden inside kthread_[un]use_mm now, and
+get/set_fs no longer exist. So, don't do it explicitly anymore.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/libcfs/include/libcfs/libcfs_ptask.h       | 1 -
+ drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c   | 9 ++-------
+ 2 files changed, 2 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
+index 85925492dd5d..ca40551dfc67 100644
+--- a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
++++ b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
+@@ -46,7 +46,6 @@ typedef int (*cfs_ptask_cb_t)(struct cfs_ptask *);
+ struct cfs_ptask {
+ 	struct padata_priv	 pt_padata;
+ 	struct completion	 pt_completion;
+-	mm_segment_t		 pt_fs;
+ 	struct mm_struct	*pt_mm;
+ 	unsigned int		 pt_flags;
+ 	int			 pt_cbcpu;
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c b/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
+index 275c01b74ad4..9786288cbad5 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
+@@ -87,7 +87,6 @@ static void cfs_ptask_complete(struct padata_priv *padata)
+ static void cfs_ptask_execute(struct padata_priv *padata)
+ {
+ 	struct cfs_ptask *ptask = cfs_padata2ptask(padata);
+-	mm_segment_t old_fs = get_fs();
+ 	bool bh_enabled = false;
+ 
+ 	if (!cfs_ptask_is_atomic(ptask)) {
+@@ -96,8 +95,7 @@ static void cfs_ptask_execute(struct padata_priv *padata)
+ 	}
+ 
+ 	if (cfs_ptask_use_user_mm(ptask) && ptask->pt_mm != NULL) {
+-		use_mm(ptask->pt_mm);
+-		set_fs(ptask->pt_fs);
++		kthread_use_mm(ptask->pt_mm);
+ 	}
+ 
+ 	if (ptask->pt_cbfunc != NULL)
+@@ -106,8 +104,7 @@ static void cfs_ptask_execute(struct padata_priv *padata)
+ 		ptask->pt_result = -ENOSYS;
+ 
+ 	if (cfs_ptask_use_user_mm(ptask) && ptask->pt_mm != NULL) {
+-		set_fs(old_fs);
+-		unuse_mm(ptask->pt_mm);
++		kthread_unuse_mm(ptask->pt_mm);
+ 		mmput(ptask->pt_mm);
+ 		ptask->pt_mm = NULL;
+ 	}
+@@ -132,7 +129,6 @@ static int cfs_do_parallel(struct cfs_ptask_engine *engine,
+ 
+ 	if (cfs_ptask_use_user_mm(ptask)) {
+ 		ptask->pt_mm = get_task_mm(current);
+-		ptask->pt_fs = get_fs();
+ 	}
+ 	ptask->pt_result = -EINPROGRESS;
+ 
+@@ -230,7 +226,6 @@ int cfs_ptask_init(struct cfs_ptask *ptask, cfs_ptask_cb_t cbfunc, void *cbdata,
+ 	ptask->pt_flags  = flags;
+ 	ptask->pt_cbcpu  = cpu;
+ 	ptask->pt_mm     = NULL; /* will be set in cfs_do_parallel() */
+-	ptask->pt_fs     = get_fs();
+ 	ptask->pt_cbfunc = cbfunc;
+ 	ptask->pt_cbdata = cbdata;
+ 	ptask->pt_result = -EAGAIN;
+-- 
+2.32.0
+

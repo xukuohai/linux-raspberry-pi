@@ -1,0 +1,283 @@
+From 310e00656ddf62d3d3f406fb6c904a7c1e4dd463 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 13 Sep 2019 18:23:35 +0000
+Subject: lustre: fix fall through warnings.
+
+Fix fall through warnings in the lustre code now that
+-Werror=implicit-fallthrough is enabled.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd.c   | 1 +
+ drivers/staging/lustrefsx/lnet/lnet/net_fault.c          | 1 +
+ drivers/staging/lustrefsx/lnet/selftest/conctl.c         | 1 +
+ drivers/staging/lustrefsx/lnet/selftest/module.c         | 6 ++++++
+ drivers/staging/lustrefsx/lnet/selftest/rpc.c            | 9 +++++++++
+ drivers/staging/lustrefsx/lustre/ldlm/ldlm_request.c     | 1 +
+ drivers/staging/lustrefsx/lustre/llite/namei.c           | 1 +
+ .../staging/lustrefsx/lustre/obdclass/lprocfs_status.c   | 4 ++++
+ drivers/staging/lustrefsx/lustre/obdecho/echo_client.c   | 5 +++++
+ drivers/staging/lustrefsx/lustre/osc/osc_cache.c         | 1 +
+ drivers/staging/lustrefsx/lustre/ptlrpc/pack_generic.c   | 6 +++---
+ 11 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd.c b/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd.c
+index c4700c071394..c66870631aa9 100644
+--- a/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd.c
++++ b/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd.c
+@@ -2299,6 +2299,7 @@ ksocknal_base_shutdown(void)
+         switch (ksocknal_data.ksnd_init) {
+         default:
+                 LASSERT (0);
++		/* Fall through */
+ 
+         case SOCKNAL_INIT_ALL:
+         case SOCKNAL_INIT_DATA:
+diff --git a/drivers/staging/lustrefsx/lnet/lnet/net_fault.c b/drivers/staging/lustrefsx/lnet/lnet/net_fault.c
+index 56e62423f21c..b3d5b907a827 100644
+--- a/drivers/staging/lustrefsx/lnet/lnet/net_fault.c
++++ b/drivers/staging/lustrefsx/lnet/lnet/net_fault.c
+@@ -638,6 +638,7 @@ delayed_msg_process(struct list_head *msg_list, bool drop)
+ 			case LNET_CREDIT_OK:
+ 				lnet_ni_recv(ni, msg->msg_private, msg, 0,
+ 					     0, msg->msg_len, msg->msg_len);
++				/* Fall through */
+ 			case LNET_CREDIT_WAIT:
+ 				continue;
+ 			default: /* failures */
+diff --git a/drivers/staging/lustrefsx/lnet/selftest/conctl.c b/drivers/staging/lustrefsx/lnet/selftest/conctl.c
+index 5476097fbc1b..e7b9d05d8cd3 100644
+--- a/drivers/staging/lustrefsx/lnet/selftest/conctl.c
++++ b/drivers/staging/lustrefsx/lnet/selftest/conctl.c
+@@ -151,6 +151,7 @@ lst_debug_ioctl(struct lstio_debug_args *args)
+ 
+         case LST_OPC_BATCHSRV:
+                 client = 0;
++		/* Fall through */
+         case LST_OPC_BATCHCLI:
+                 if (name == NULL)
+                         goto out;
+diff --git a/drivers/staging/lustrefsx/lnet/selftest/module.c b/drivers/staging/lustrefsx/lnet/selftest/module.c
+index 2f87742142d4..56212a840dcc 100644
+--- a/drivers/staging/lustrefsx/lnet/selftest/module.c
++++ b/drivers/staging/lustrefsx/lnet/selftest/module.c
+@@ -57,10 +57,13 @@ lnet_selftest_exit(void)
+         switch (lst_init_step) {
+                 case LST_INIT_CONSOLE:
+                         lstcon_console_fini();
++		/* Fall through */
+                 case LST_INIT_FW:
+                         sfw_shutdown();
++		/* Fall through */
+                 case LST_INIT_RPC:
+                         srpc_shutdown();
++		/* Fall through */
+ 		case LST_INIT_WI_TEST:
+ 			for (i = 0;
+ 			     i < cfs_cpt_number(lnet_cpt_table()); i++) {
+@@ -72,12 +75,15 @@ lnet_selftest_exit(void)
+ 				    sizeof(lst_sched_test[0]) *
+ 				    cfs_cpt_number(lnet_cpt_table()));
+ 			lst_sched_test = NULL;
++		/* Fall through */
+ 
+ 		case LST_INIT_WI_SERIAL:
+ 			cfs_wi_sched_destroy(lst_sched_serial);
+ 			lst_sched_serial = NULL;
++		/* Fall through */
+                 case LST_INIT_NONE:
+                         break;
++		/* Fall through */
+                 default:
+                         LBUG();
+         }
+diff --git a/drivers/staging/lustrefsx/lnet/selftest/rpc.c b/drivers/staging/lustrefsx/lnet/selftest/rpc.c
+index abed28104aa6..ed88dfeac708 100644
+--- a/drivers/staging/lustrefsx/lnet/selftest/rpc.c
++++ b/drivers/staging/lustrefsx/lnet/selftest/rpc.c
+@@ -1020,6 +1020,7 @@ srpc_handle_rpc(swi_workitem_t *wi)
+                         ev->ev_status = rc;
+                 }
+         }
++	/* Fall through */
+         case SWI_STATE_BULK_STARTED:
+                 LASSERT (rpc->srpc_bulk == NULL || ev->ev_fired);
+ 
+@@ -1218,6 +1219,7 @@ srpc_send_rpc (swi_workitem_t *wi)
+ 
+                 wi->swi_state = SWI_STATE_REQUEST_SENT;
+                 /* perhaps more events, fall thru */
++		/* Fall through */
+         case SWI_STATE_REQUEST_SENT: {
+                 srpc_msg_type_t type = srpc_service2reply(rpc->crpc_service);
+ 
+@@ -1249,6 +1251,7 @@ srpc_send_rpc (swi_workitem_t *wi)
+ 
+                 wi->swi_state = SWI_STATE_REPLY_RECEIVED;
+         }
++	/* Fall through */
+         case SWI_STATE_REPLY_RECEIVED:
+                 if (do_bulk && !rpc->crpc_bulkev.ev_fired) break;
+ 
+@@ -1427,6 +1430,7 @@ srpc_lnet_ev_handler(struct lnet_event *ev)
+ 			srpc_data.rpc_counters.rpcs_sent++;
+ 			spin_unlock(&srpc_data.rpc_glock);
+                 }
++		/* Fall through */
+         case SRPC_REPLY_RCVD:
+         case SRPC_BULK_REQ_RCVD:
+                 crpc = rpcev->ev_data;
+@@ -1546,6 +1550,7 @@ srpc_lnet_ev_handler(struct lnet_event *ev)
+ 
+                 if (!ev->unlinked)
+                         break; /* wait for final event */
++		/* Fall through */
+ 
+         case SRPC_BULK_PUT_SENT:
+                 if (ev->status == 0 && ev->type != LNET_EVENT_UNLINK) {
+@@ -1558,6 +1563,7 @@ srpc_lnet_ev_handler(struct lnet_event *ev)
+ 
+ 			spin_unlock(&srpc_data.rpc_glock);
+ 		}
++		/* Fall through */
+ 	case SRPC_REPLY_SENT:
+ 		srpc = rpcev->ev_data;
+ 		scd  = srpc->srpc_scd;
+@@ -1652,6 +1658,7 @@ srpc_shutdown (void)
+ 		spin_unlock(&srpc_data.rpc_glock);
+ 
+                 stt_shutdown();
++		/* Fall through */
+ 
+         case SRPC_STATE_EQ_INIT:
+                 rc = LNetClearLazyPortal(SRPC_FRAMEWORK_REQUEST_PORTAL);
+@@ -1659,9 +1666,11 @@ srpc_shutdown (void)
+                 LASSERT (rc == 0);
+                 rc = LNetEQFree(srpc_data.rpc_lnet_eq);
+                 LASSERT (rc == 0); /* the EQ should have no user by now */
++		/* Fall through */
+ 
+         case SRPC_STATE_NI_INIT:
+                 LNetNIFini();
++		/* Fall through */
+         }
+ 
+         return;
+diff --git a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_request.c b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_request.c
+index 14ac08ade080..f932c9900dd2 100644
+--- a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_request.c
++++ b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_request.c
+@@ -1485,6 +1485,7 @@ ldlm_cancel_no_wait_policy(struct ldlm_namespace *ns, struct ldlm_lock *lock,
+ 		case LDLM_IBITS:
+ 			if (ns->ns_cancel != NULL && ns->ns_cancel(lock) != 0)
+ 				break;
++			/* Fall through */
+ 		default:
+ 			result = LDLM_POLICY_SKIP_LOCK;
+ 			lock_res_and_lock(lock);
+diff --git a/drivers/staging/lustrefsx/lustre/llite/namei.c b/drivers/staging/lustrefsx/lustre/llite/namei.c
+index 0a7b62dd8a5e..268e11a161e0 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/namei.c
++++ b/drivers/staging/lustrefsx/lustre/llite/namei.c
+@@ -1162,6 +1162,7 @@ static int ll_mknod(struct inode *dir, struct dentry *dchild, ll_umode_t mode,
+         switch (mode & S_IFMT) {
+         case 0:
+                 mode |= S_IFREG; /* for mode = 0 case, fallthrough */
++		/* Fall through */
+         case S_IFREG:
+         case S_IFCHR:
+         case S_IFBLK:
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+index 0c0badb13a95..d2d72dcde41d 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+@@ -1833,15 +1833,19 @@ static int get_mult(char unit, __u64 *mult)
+ 	case 'p':
+ 	case 'P':
+ 		units <<= 10;
++		/* Fall through */
+ 	case 't':
+ 	case 'T':
+ 		units <<= 10;
++		/* Fall through */
+ 	case 'g':
+ 	case 'G':
+ 		units <<= 10;
++		/* Fall through */
+ 	case 'm':
+ 	case 'M':
+ 		units <<= 10;
++		/* Fall through */
+ 	case 'k':
+ 	case 'K':
+ 		units <<= 10;
+diff --git a/drivers/staging/lustrefsx/lustre/obdecho/echo_client.c b/drivers/staging/lustrefsx/lustre/obdecho/echo_client.c
+index 1b558f7e0e64..769d59ed21b7 100644
+--- a/drivers/staging/lustrefsx/lustre/obdecho/echo_client.c
++++ b/drivers/staging/lustrefsx/lustre/obdecho/echo_client.c
+@@ -962,14 +962,19 @@ static struct lu_device *echo_device_alloc(const struct lu_env *env,
+                         CERROR("Cleanup obd device %s error(%d)\n",
+                                obd->obd_name, rc2);
+         }
++	/* Fall through */
+ 
+         case 3:
+                 echo_site_fini(env, ed);
++		/* Fall through */
+         case 2:
+                 cl_device_fini(&ed->ed_cl);
++		/* Fall through */
+         case 1:
+                 OBD_FREE_PTR(ed);
++		/* Fall through */
+         case 0:
++		/* Fall through */
+         default:
+                 break;
+         }
+diff --git a/drivers/staging/lustrefsx/lustre/osc/osc_cache.c b/drivers/staging/lustrefsx/lustre/osc/osc_cache.c
+index 06da0c5333a3..178340e255ac 100644
+--- a/drivers/staging/lustrefsx/lustre/osc/osc_cache.c
++++ b/drivers/staging/lustrefsx/lustre/osc/osc_cache.c
+@@ -214,6 +214,7 @@ static int osc_extent_sanity_check0(struct osc_extent *ext,
+ 			GOTO(out, rc = 60);
+ 		if (ext->oe_fsync_wait && !ext->oe_urgent && !ext->oe_hp)
+ 			GOTO(out, rc = 65);
++		/* Fall through */
+ 	default:
+ 		if (atomic_read(&ext->oe_users) > 0)
+ 			GOTO(out, rc = 70);
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/pack_generic.c b/drivers/staging/lustrefsx/lustre/ptlrpc/pack_generic.c
+index 0b2a13753430..3e97aa6332ed 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/pack_generic.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/pack_generic.c
+@@ -836,7 +836,7 @@ __u32 lustre_msg_get_flags(struct lustre_msg *msg)
+ 
+ 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+ 	}
+-	/* no break */
++	/* Fall through */
+ 	default:
+ 		/* flags might be printed in debug code while message
+ 		 * uninitialized */
+@@ -899,7 +899,7 @@ __u32 lustre_msg_get_op_flags(struct lustre_msg *msg)
+ 
+ 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+ 	}
+-	/* no break */
++	/* Fall through */
+ 	default:
+ 		return 0;
+ 	}
+@@ -1104,7 +1104,7 @@ int lustre_msg_get_status(struct lustre_msg *msg)
+ 			return pb->pb_status;
+ 		CERROR("invalid msg %p: no ptlrpc body!\n", msg);
+ 	}
+-	/* no break */
++	/* Fall through */
+ 	default:
+ 		/* status might be printed in debug code while message
+ 		* uninitialized */
+-- 
+2.32.0
+

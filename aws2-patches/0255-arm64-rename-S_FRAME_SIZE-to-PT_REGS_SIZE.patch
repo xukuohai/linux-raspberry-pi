@@ -1,0 +1,192 @@
+From eab88b8225a4ee023bafadc06a14a3e105a182c5 Mon Sep 17 00:00:00 2001
+From: Jianlin Lv <Jianlin.Lv@arm.com>
+Date: Tue, 12 Jan 2021 09:58:13 +0800
+Subject: arm64: rename S_FRAME_SIZE to PT_REGS_SIZE
+
+S_FRAME_SIZE is the size of the pt_regs structure, no longer the size of
+the kernel stack frame, the name is misleading. In keeping with arm32,
+rename S_FRAME_SIZE to PT_REGS_SIZE.
+
+Signed-off-by: Jianlin Lv <Jianlin.Lv@arm.com>
+Acked-by: Mark Rutland <mark.rutland@arm.com>
+Link: https://lore.kernel.org/r/20210112015813.2340969-1-Jianlin.Lv@arm.com
+Signed-off-by: Catalin Marinas <catalin.marinas@arm.com>
+(cherry picked from commit 71e70184f1d1314ad56e834d1befc07daa2af8e6)
+---
+ arch/arm64/kernel/asm-offsets.c               |  2 +-
+ arch/arm64/kernel/entry-ftrace.S              | 12 ++++++------
+ arch/arm64/kernel/entry.S                     | 18 +++++++++---------
+ arch/arm64/kernel/probes/kprobes_trampoline.S |  6 +++---
+ 4 files changed, 19 insertions(+), 19 deletions(-)
+
+diff --git a/arch/arm64/kernel/asm-offsets.c b/arch/arm64/kernel/asm-offsets.c
+index 7d32fc959b1a..c10c4d8313aa 100644
+--- a/arch/arm64/kernel/asm-offsets.c
++++ b/arch/arm64/kernel/asm-offsets.c
+@@ -73,7 +73,7 @@ int main(void)
+   DEFINE(S_ORIG_ADDR_LIMIT,	offsetof(struct pt_regs, orig_addr_limit));
+   DEFINE(S_PMR_SAVE,		offsetof(struct pt_regs, pmr_save));
+   DEFINE(S_STACKFRAME,		offsetof(struct pt_regs, stackframe));
+-  DEFINE(S_FRAME_SIZE,		sizeof(struct pt_regs));
++  DEFINE(PT_REGS_SIZE,		sizeof(struct pt_regs));
+   BLANK();
+ #ifdef CONFIG_COMPAT
+   DEFINE(COMPAT_SIGFRAME_REGS_OFFSET,		offsetof(struct compat_sigframe, uc.uc_mcontext.arm_r0));
+diff --git a/arch/arm64/kernel/entry-ftrace.S b/arch/arm64/kernel/entry-ftrace.S
+index 67f68c9ef94c..8cf970d219f5 100644
+--- a/arch/arm64/kernel/entry-ftrace.S
++++ b/arch/arm64/kernel/entry-ftrace.S
+@@ -35,7 +35,7 @@
+  */
+ 	.macro  ftrace_regs_entry, allregs=0
+ 	/* Make room for pt_regs, plus a callee frame */
+-	sub	sp, sp, #(S_FRAME_SIZE + 16)
++	sub	sp, sp, #(PT_REGS_SIZE + 16)
+ 
+ 	/* Save function arguments (and x9 for simplicity) */
+ 	stp	x0, x1, [sp, #S_X0]
+@@ -61,15 +61,15 @@
+ 	.endif
+ 
+ 	/* Save the callsite's SP and LR */
+-	add	x10, sp, #(S_FRAME_SIZE + 16)
++	add	x10, sp, #(PT_REGS_SIZE + 16)
+ 	stp	x9, x10, [sp, #S_LR]
+ 
+ 	/* Save the PC after the ftrace callsite */
+ 	str	x30, [sp, #S_PC]
+ 
+ 	/* Create a frame record for the callsite above pt_regs */
+-	stp	x29, x9, [sp, #S_FRAME_SIZE]
+-	add	x29, sp, #S_FRAME_SIZE
++	stp	x29, x9, [sp, #PT_REGS_SIZE]
++	add	x29, sp, #PT_REGS_SIZE
+ 
+ 	/* Create our frame record within pt_regs. */
+ 	stp	x29, x30, [sp, #S_STACKFRAME]
+@@ -126,7 +126,7 @@ ftrace_common_return:
+ 	ldr	x9, [sp, #S_PC]
+ 
+ 	/* Restore the callsite's SP */
+-	add	sp, sp, #S_FRAME_SIZE + 16
++	add	sp, sp, #PT_REGS_SIZE + 16
+ 
+ 	ret	x9
+ SYM_CODE_END(ftrace_common)
+@@ -136,7 +136,7 @@ SYM_CODE_START(ftrace_graph_caller)
+ 	ldr	x0, [sp, #S_PC]
+ 	sub	x0, x0, #AARCH64_INSN_SIZE	// ip (callsite's BL insn)
+ 	add	x1, sp, #S_LR			// parent_ip (callsite's LR)
+-	ldr	x2, [sp, #S_FRAME_SIZE]	   	// parent fp (callsite's FP)
++	ldr	x2, [sp, #PT_REGS_SIZE]	   	// parent fp (callsite's FP)
+ 	bl	prepare_ftrace_return
+ 	b	ftrace_common_return
+ SYM_CODE_END(ftrace_graph_caller)
+diff --git a/arch/arm64/kernel/entry.S b/arch/arm64/kernel/entry.S
+index d5bc1dbdd2fd..0c637e274dcf 100644
+--- a/arch/arm64/kernel/entry.S
++++ b/arch/arm64/kernel/entry.S
+@@ -78,7 +78,7 @@
+ .Lskip_tramp_vectors_cleanup\@:
+ 	.endif
+ 
+-	sub	sp, sp, #S_FRAME_SIZE
++	sub	sp, sp, #PT_REGS_SIZE
+ #ifdef CONFIG_VMAP_STACK
+ 	/*
+ 	 * Test whether the SP has overflowed, without corrupting a GPR.
+@@ -99,7 +99,7 @@
+ 	 * userspace, and can clobber EL0 registers to free up GPRs.
+ 	 */
+ 
+-	/* Stash the original SP (minus S_FRAME_SIZE) in tpidr_el0. */
++	/* Stash the original SP (minus PT_REGS_SIZE) in tpidr_el0. */
+ 	msr	tpidr_el0, x0
+ 
+ 	/* Recover the original x0 value and stash it in tpidrro_el0 */
+@@ -223,7 +223,7 @@ alternative_else_nop_endif
+ 
+ 	scs_load tsk, x20
+ 	.else
+-	add	x21, sp, #S_FRAME_SIZE
++	add	x21, sp, #PT_REGS_SIZE
+ 	get_current_task tsk
+ 	/* Save the task's original addr_limit and set USER_DS */
+ 	ldr	x20, [tsk, #TSK_TI_ADDR_LIMIT]
+@@ -362,7 +362,7 @@ alternative_else_nop_endif
+ 	.if	\el == 0
+ alternative_if_not ARM64_UNMAP_KERNEL_AT_EL0
+ 	ldr	lr, [sp, #S_LR]
+-	add	sp, sp, #S_FRAME_SIZE		// restore sp
++	add	sp, sp, #PT_REGS_SIZE		// restore sp
+ 	eret
+ alternative_else_nop_endif
+ #ifdef CONFIG_UNMAP_KERNEL_AT_EL0
+@@ -376,7 +376,7 @@ alternative_else_nop_endif
+ #endif
+ 	.else
+ 	ldr	lr, [sp, #S_LR]
+-	add	sp, sp, #S_FRAME_SIZE		// restore sp
++	add	sp, sp, #PT_REGS_SIZE		// restore sp
+ 
+ 	/* Ensure any device/NC reads complete */
+ 	alternative_insn nop, "dmb sy", ARM64_WORKAROUND_1508412
+@@ -595,12 +595,12 @@ __bad_stack:
+ 
+ 	/*
+ 	 * Store the original GPRs to the new stack. The orginal SP (minus
+-	 * S_FRAME_SIZE) was stashed in tpidr_el0 by kernel_ventry.
++	 * PT_REGS_SIZE) was stashed in tpidr_el0 by kernel_ventry.
+ 	 */
+-	sub	sp, sp, #S_FRAME_SIZE
++	sub	sp, sp, #PT_REGS_SIZE
+ 	kernel_entry 1
+ 	mrs	x0, tpidr_el0
+-	add	x0, x0, #S_FRAME_SIZE
++	add	x0, x0, #PT_REGS_SIZE
+ 	str	x0, [sp, #S_SP]
+ 
+ 	/* Stash the regs for handle_bad_stack */
+@@ -896,7 +896,7 @@ alternative_else_nop_endif
+ 	.if	\regsize == 64
+ 	mrs	x29, far_el1
+ 	.endif
+-	add	sp, sp, #S_FRAME_SIZE		// restore sp
++	add	sp, sp, #PT_REGS_SIZE		// restore sp
+ 	eret
+ 	sb
+ 	.endm
+diff --git a/arch/arm64/kernel/probes/kprobes_trampoline.S b/arch/arm64/kernel/probes/kprobes_trampoline.S
+index 890ca72c5a51..288a84e253cc 100644
+--- a/arch/arm64/kernel/probes/kprobes_trampoline.S
++++ b/arch/arm64/kernel/probes/kprobes_trampoline.S
+@@ -25,7 +25,7 @@
+ 	stp x24, x25, [sp, #S_X24]
+ 	stp x26, x27, [sp, #S_X26]
+ 	stp x28, x29, [sp, #S_X28]
+-	add x0, sp, #S_FRAME_SIZE
++	add x0, sp, #PT_REGS_SIZE
+ 	stp lr, x0, [sp, #S_LR]
+ 	/*
+ 	 * Construct a useful saved PSTATE
+@@ -62,7 +62,7 @@
+ 	.endm
+ 
+ SYM_CODE_START(kretprobe_trampoline)
+-	sub sp, sp, #S_FRAME_SIZE
++	sub sp, sp, #PT_REGS_SIZE
+ 
+ 	save_all_base_regs
+ 
+@@ -76,7 +76,7 @@ SYM_CODE_START(kretprobe_trampoline)
+ 
+ 	restore_all_base_regs
+ 
+-	add sp, sp, #S_FRAME_SIZE
++	add sp, sp, #PT_REGS_SIZE
+ 	ret
+ 
+ SYM_CODE_END(kretprobe_trampoline)
+-- 
+2.32.0
+

@@ -1,0 +1,83 @@
+From 7e7cf77f749103083ce1fd9e9583c7097ad6a3f0 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 14 Oct 2020 21:29:09 +0000
+Subject: lustre: fixup for kernel_{get,set}sockopt removal
+
+The kernel_getsockopt and kernel_setsockopt functions
+were removed from upstream Linux.
+
+Replace the one kernel_getsockopt call with a direct
+call to the getsockopt socket op.
+
+There are a number of kernel_setsockopt calls, so copy
+kernel_setsockopt from 5.4, with a sockptr_t mod.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/lnet/include/lnet/lib-lnet.h      |  5 +++++
+ .../lustrefsx/lnet/klnds/socklnd/socklnd_lib.c  |  4 ++--
+ .../staging/lustrefsx/lnet/lnet/lib-socket.c    | 17 +++++++++++++++++
+ 3 files changed, 24 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lnet/include/lnet/lib-lnet.h b/drivers/staging/lustrefsx/lnet/include/lnet/lib-lnet.h
+index 59386c0fdee2..15b89a9f8504 100644
+--- a/drivers/staging/lustrefsx/lnet/include/lnet/lib-lnet.h
++++ b/drivers/staging/lustrefsx/lnet/include/lnet/lib-lnet.h
+@@ -83,6 +83,11 @@ extern struct lnet the_lnet;			/* THE network */
+ 		kernel_getsockname(sock, addr, addrlen)
+ #endif
+ 
++#ifndef HAVE_KERNEL_SETSOCKOPT
++int kernel_setsockopt(struct socket *sock, int level, int optname,
++                        char *optval, unsigned int optlen);
++#endif
++
+ static inline int lnet_is_route_alive(struct lnet_route *route)
+ {
+ 	if (!route->lr_gateway->lpni_alive)
+diff --git a/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd_lib.c b/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd_lib.c
+index 1215488b89d6..b72bf1954130 100644
+--- a/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd_lib.c
++++ b/drivers/staging/lustrefsx/lnet/klnds/socklnd/socklnd_lib.c
+@@ -435,8 +435,8 @@ ksocknal_lib_get_conn_tunables (ksock_conn_t *conn, int *txmem, int *rxmem, int
+ 	rc = lnet_sock_getbuf(sock, txmem, rxmem);
+         if (rc == 0) {
+                 len = sizeof(*nagle);
+-		rc = kernel_getsockopt(sock, SOL_TCP, TCP_NODELAY,
+-				       (char *)nagle, &len);
++		rc = sock->ops->getsockopt(sock, SOL_TCP, TCP_NODELAY,
++					   (char *)nagle, &len);
+         }
+ 
+         ksocknal_connsock_decref(conn);
+diff --git a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+index fa9610509773..f19a3a3d4b61 100644
+--- a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
++++ b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+@@ -43,6 +43,23 @@
+ #include <libcfs/libcfs.h>
+ #include <lnet/lib-lnet.h>
+ 
++#ifndef HAVE_KERNEL_SETSOCKOPT
++int kernel_setsockopt(struct socket *sock, int level, int optname,
++			char *val, unsigned int optlen)
++{
++	sockptr_t optval = KERNEL_SOCKPTR(val);
++	int err;
++
++	if (level == SOL_SOCKET)
++		err = sock_setsockopt(sock, level, optname, optval, optlen);
++	else
++		err = sock->ops->setsockopt(sock, level, optname, optval,
++					    optlen);
++	return err;
++}
++EXPORT_SYMBOL(kernel_setsockopt);
++#endif
++
+ static int
+ lnet_sock_create_kern(struct socket **sock, struct net *ns)
+ {
+-- 
+2.32.0
+

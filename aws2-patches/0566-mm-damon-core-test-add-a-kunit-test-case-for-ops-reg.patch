@@ -1,0 +1,72 @@
+From 68dbe96af1bdf2cf792488605aab2c63390be42d Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Fri, 29 Apr 2022 14:37:00 -0700
+Subject: mm/damon/core-test: add a kunit test case for ops registration
+
+This commit adds a simple kunit test case for DAMON operations
+registration feature.
+
+Link: https://lkml.kernel.org/r/20220419122225.290518-1-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/core-test.h | 36 ++++++++++++++++++++++++++++++++++++
+ 1 file changed, 36 insertions(+)
+
+diff --git a/mm/damon/core-test.h b/mm/damon/core-test.h
+index b4085deb9fa0..573669566f84 100644
+--- a/mm/damon/core-test.h
++++ b/mm/damon/core-test.h
+@@ -232,6 +232,41 @@ static void damon_test_split_regions_of(struct kunit *test)
+ 	damon_destroy_ctx(c);
+ }
+ 
++static void damon_test_ops_registration(struct kunit *test)
++{
++	struct damon_ctx *c = damon_new_ctx();
++	struct damon_operations ops, bak;
++
++	/* DAMON_OPS_{V,P}ADDR are registered on subsys_initcall */
++	KUNIT_EXPECT_EQ(test, damon_select_ops(c, DAMON_OPS_VADDR), 0);
++	KUNIT_EXPECT_EQ(test, damon_select_ops(c, DAMON_OPS_PADDR), 0);
++
++	/* Double-registration is prohibited */
++	ops.id = DAMON_OPS_VADDR;
++	KUNIT_EXPECT_EQ(test, damon_register_ops(&ops), -EINVAL);
++	ops.id = DAMON_OPS_PADDR;
++	KUNIT_EXPECT_EQ(test, damon_register_ops(&ops), -EINVAL);
++
++	/* Unknown ops id cannot be registered */
++	KUNIT_EXPECT_EQ(test, damon_select_ops(c, NR_DAMON_OPS), -EINVAL);
++
++	/* Registration should success after unregistration */
++	mutex_lock(&damon_ops_lock);
++	bak = damon_registered_ops[DAMON_OPS_VADDR];
++	damon_registered_ops[DAMON_OPS_VADDR] = (struct damon_operations){};
++	mutex_unlock(&damon_ops_lock);
++
++	ops.id = DAMON_OPS_VADDR;
++	KUNIT_EXPECT_EQ(test, damon_register_ops(&ops), 0);
++
++	mutex_lock(&damon_ops_lock);
++	damon_registered_ops[DAMON_OPS_VADDR] = bak;
++	mutex_unlock(&damon_ops_lock);
++
++	/* Check double-registration failure again */
++	KUNIT_EXPECT_EQ(test, damon_register_ops(&ops), -EINVAL);
++}
++
+ static struct kunit_case damon_test_cases[] = {
+ 	KUNIT_CASE(damon_test_target),
+ 	KUNIT_CASE(damon_test_regions),
+@@ -240,6 +275,7 @@ static struct kunit_case damon_test_cases[] = {
+ 	KUNIT_CASE(damon_test_merge_two),
+ 	KUNIT_CASE(damon_test_merge_regions_of),
+ 	KUNIT_CASE(damon_test_split_regions_of),
++	KUNIT_CASE(damon_test_ops_registration),
+ 	{},
+ };
+ 
+-- 
+2.32.0
+

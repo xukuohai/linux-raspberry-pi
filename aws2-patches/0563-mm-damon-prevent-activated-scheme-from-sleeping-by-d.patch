@@ -1,0 +1,55 @@
+From 9972dd4b50b5d769b900229dbaed5bb42f4d6951 Mon Sep 17 00:00:00 2001
+From: Jonghyeon Kim <tome01@ajou.ac.kr>
+Date: Fri, 1 Apr 2022 11:28:57 -0700
+Subject: mm/damon: prevent activated scheme from sleeping by deactivated
+ schemes
+
+In the DAMON, the minimum wait time of the schemes decides whether the
+kernel wakes up 'kdamon_fn()'.  But since the minimum wait time is
+initialized to zero, there are corner cases against the original
+objective.
+
+For example, if we have several schemes for one target, and if the wait
+time of the first scheme is zero, the minimum wait time will set zero,
+which means 'kdamond_fn()' should wake up to apply this scheme.
+However, in the following scheme, wait time can be set to non-zero.
+Thus, the mininum wait time will be set to non-zero, which can cause
+sleeping this interval for 'kdamon_fn()' due to one deactivated last
+scheme.
+
+This commit prevents making DAMON monitoring inactive state due to other
+deactivated schemes.
+
+Link: https://lkml.kernel.org/r/20220330105302.32114-1-tome01@ajou.ac.kr
+Signed-off-by: Jonghyeon Kim <tome01@ajou.ac.kr>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/core.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index c1e0fed4e877..5ce8d7c867f0 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -1019,12 +1019,15 @@ static int kdamond_wait_activation(struct damon_ctx *ctx)
+ 	struct damos *s;
+ 	unsigned long wait_time;
+ 	unsigned long min_wait_time = 0;
++	bool init_wait_time = false;
+ 
+ 	while (!kdamond_need_stop(ctx)) {
+ 		damon_for_each_scheme(s, ctx) {
+ 			wait_time = damos_wmark_wait_us(s);
+-			if (!min_wait_time || wait_time < min_wait_time)
++			if (!init_wait_time || wait_time < min_wait_time) {
++				init_wait_time = true;
+ 				min_wait_time = wait_time;
++			}
+ 		}
+ 		if (!min_wait_time)
+ 			return 0;
+-- 
+2.32.0
+

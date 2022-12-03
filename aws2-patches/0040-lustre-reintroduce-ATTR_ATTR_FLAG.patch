@@ -1,0 +1,41 @@
+From 418ff2ffcc2ecaafce522bd77243eebce56ab602 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 5 Mar 2019 19:08:42 +0000
+Subject: lustre: reintroduce ATTR_ATTR_FLAG
+
+In Linux kernels >= 4.19, the ATTR_ATTR_FLAG flag was removed because
+nobody was using it.  But Lustre does. So define it if needed. It is
+safe to do so, since it's not been replaced with a different flag with
+the same value.
+
+Linux commit: 4cdfffc8722e ("vfs: discard ATTR_ATTR_FLAG")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../staging/lustrefsx/lustre/include/lustre_compat.h   | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index c5915f000a0a..13582375848a 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -84,6 +84,16 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
+  */
+ #define ATTR_BLOCKS    (1 << 27)
+ 
++/*
++ * In more recent kernels, this flag was removed because nobody was using it.
++ * But Lustre does. So define it if needed. It is safe to do so, since it's
++ * not been replaced with a different flag with the same value, and Lustre
++ * only uses it internally.
++ */
++#ifndef ATTR_ATTR_FLAG
++#define ATTR_ATTR_FLAG (1 << 10)
++#endif
++
+ #define current_ngroups current_cred()->group_info->ngroups
+ #define current_groups current_cred()->group_info->small_block
+ 
+-- 
+2.32.0
+

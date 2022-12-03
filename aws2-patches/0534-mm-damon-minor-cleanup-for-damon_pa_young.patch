@@ -1,0 +1,32 @@
+From 6cd8621e50b88a10e5bf1ae663dd3c11f174a6bf Mon Sep 17 00:00:00 2001
+From: Miaohe Lin <linmiaohe@huawei.com>
+Date: Wed, 16 Mar 2022 16:15:28 +0800
+Subject: mm/damon: minor cleanup for damon_pa_young
+
+if need_lock is true but folio_trylock fails, we should return false
+instead of NULL to match the return value type exactly. No functional
+change intended.
+
+Signed-off-by: Miaohe Lin <linmiaohe@huawei.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Matthew Wilcox (Oracle) <willy@infradead.org>
+---
+ mm/damon/paddr.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/paddr.c b/mm/damon/paddr.c
+index 5e8244f65a1a..a6c5b24fba7a 100644
+--- a/mm/damon/paddr.c
++++ b/mm/damon/paddr.c
+@@ -156,7 +156,7 @@ static bool damon_pa_young(unsigned long paddr, unsigned long *page_sz)
+ 	need_lock = !PageAnon(page) || PageKsm(page);
+ 	if (need_lock && !trylock_page(page)) {
+ 		put_page(page);
+-		return NULL;
++		return false;
+ 	}
+ 
+ 	rmap_walk(page, &rwc);
+-- 
+2.32.0
+

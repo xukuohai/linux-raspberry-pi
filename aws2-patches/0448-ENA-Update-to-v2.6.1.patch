@@ -1,0 +1,112 @@
+From 4aa0a25afc8b1daeb280cd1bef35a653367ec867 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Wed, 2 Feb 2022 12:05:43 -0800
+Subject: ENA: Update to v2.6.1
+
+Source: https://github.com/amzn/amzn-drivers/
+
+Change Log:
+
+	v2.6.0 -> v2.6.1
+	**New Features**
+	* Add BQL support enabled by module parameter
+
+	**Minor Changes**
+	* Don't print stats on refresh capabilities reset
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+Reviewed-by: Hazem Mohamed Abuelfotoh <abuehaze@amazon.com>
+Reviewed-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/amazon/net/ena/ena_netdev.c | 18 ++++++++++++++++--
+ drivers/amazon/net/ena/ena_netdev.h |  3 ++-
+ 2 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/amazon/net/ena/ena_netdev.c b/drivers/amazon/net/ena/ena_netdev.c
+index 057b4de2ebad..5c96ec35a74f 100644
+--- a/drivers/amazon/net/ena/ena_netdev.c
++++ b/drivers/amazon/net/ena/ena_netdev.c
+@@ -60,7 +60,7 @@ static int rx_queue_size = ENA_DEFAULT_RING_SIZE;
+ module_param(rx_queue_size, int, 0444);
+ MODULE_PARM_DESC(rx_queue_size, "Rx queue size. The size should be a power of 2. Max value is 8K\n");
+ 
+-static int force_large_llq_header;
++static int force_large_llq_header = 0;
+ module_param(force_large_llq_header, int, 0444);
+ MODULE_PARM_DESC(force_large_llq_header, "Increases maximum supported header size in LLQ mode to 224 bytes, while reducing the maximum TX queue size by half.\n");
+ 
+@@ -68,6 +68,10 @@ static int num_io_queues = ENA_MAX_NUM_IO_QUEUES;
+ module_param(num_io_queues, int, 0444);
+ MODULE_PARM_DESC(num_io_queues, "Sets number of RX/TX queues to allocate to device. The maximum value depends on the device and number of online CPUs.\n");
+ 
++static int enable_bql = 0;
++module_param(enable_bql, int, 0444);
++MODULE_PARM_DESC(enable_bql, "Enable BQL.\n");
++
+ static int lpc_size = ENA_LPC_DEFAULT_MULTIPLIER;
+ module_param(lpc_size, uint, 0444);
+ MODULE_PARM_DESC(lpc_size, "Each local page cache (lpc) holds N * 1024 pages. This parameter sets N which is rounded up to a multiplier of 2. If zero, the page cache is disabled. Max: 32\n");
+@@ -787,6 +791,7 @@ static void ena_init_io_rings(struct ena_adapter *adapter,
+ 		txr->tx_max_header_size = ena_dev->tx_max_header_size;
+ 		txr->tx_mem_queue_type = ena_dev->tx_mem_queue_type;
+ 		txr->sgl_size = adapter->max_tx_sgl_size;
++		txr->enable_bql = enable_bql;
+ 		txr->smoothed_interval =
+ 			ena_com_get_nonadaptive_moderation_interval_tx(ena_dev);
+ 		txr->disable_meta_caching = adapter->disable_meta_caching;
+@@ -1466,6 +1471,9 @@ static int ena_clean_tx_irq(struct ena_ring *tx_ring, u32 budget)
+ 	ena_com_comp_ack(tx_ring->ena_com_io_sq, total_done);
+ 	ena_com_update_dev_comp_head(tx_ring->ena_com_io_cq);
+ 
++	if (tx_ring->enable_bql)
++		netdev_tx_completed_queue(txq, tx_pkts, tx_bytes);
++
+ 	netif_dbg(tx_ring->adapter, tx_done, tx_ring->netdev,
+ 		  "tx_poll: q %d done. total pkts: %d\n",
+ 		  tx_ring->qid, tx_pkts);
+@@ -3393,6 +3401,9 @@ static netdev_tx_t ena_start_xmit(struct sk_buff *skb, struct net_device *dev)
+ 	if (rc)
+ 		goto error_unmap_dma;
+ 
++	if (tx_ring->enable_bql)
++		netdev_tx_sent_queue(txq, skb->len);
++
+ 	/* stop the queue when no more space available, the packet can have up
+ 	 * to sgl_size + 2. one for the meta descriptor and one for header
+ 	 * (if the header is larger than tx_max_header_size).
+@@ -4505,7 +4516,10 @@ static void ena_timer_service(unsigned long data)
+ 
+ 		netif_err(adapter, drv, adapter->netdev,
+ 			  "Trigger reset is on\n");
+-		ena_dump_stats_to_dmesg(adapter);
++
++		if (adapter->reset_reason != ENA_REGS_RESET_NORMAL)
++			ena_dump_stats_to_dmesg(adapter);
++
+ 		queue_work(ena_wq, &adapter->reset_task);
+ 		return;
+ 	}
+diff --git a/drivers/amazon/net/ena/ena_netdev.h b/drivers/amazon/net/ena/ena_netdev.h
+index 48cb953e6d80..bdc8f9f07c79 100644
+--- a/drivers/amazon/net/ena/ena_netdev.h
++++ b/drivers/amazon/net/ena/ena_netdev.h
+@@ -26,7 +26,7 @@
+ 
+ #define DRV_MODULE_GEN_MAJOR	2
+ #define DRV_MODULE_GEN_MINOR	6
+-#define DRV_MODULE_GEN_SUBMINOR 0
++#define DRV_MODULE_GEN_SUBMINOR 1
+ 
+ #define DRV_MODULE_NAME		"ena"
+ #ifndef DRV_MODULE_GENERATION
+@@ -296,6 +296,7 @@ struct ena_ring {
+ 	u16 qid;
+ 	u16 mtu;
+ 	u16 sgl_size;
++	u8 enable_bql;
+ 
+ 	/* The maximum header length the device can handle */
+ 	u8 tx_max_header_size;
+-- 
+2.32.0
+

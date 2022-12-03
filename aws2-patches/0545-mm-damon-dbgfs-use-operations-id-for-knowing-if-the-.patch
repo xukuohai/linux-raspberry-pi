@@ -1,0 +1,48 @@
+From 4465c95d259e61638b6ca896fe164fc71808a727 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Tue, 22 Mar 2022 14:49:01 -0700
+Subject: mm/damon/dbgfs: use operations id for knowing if the target has pid
+
+DAMON debugfs interface depends on monitoring operations for virtual
+address spaces because it knows if the target has pid or not by seeing if
+the context is configured to use one of the virtual address space
+monitoring operation functions.  We can replace that check with 'enum
+damon_ops_id' now, to make it independent.  This commit makes the change.
+
+Link: https://lkml.kernel.org/r/20220215184603.1479-7-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Cc: David Rientjes <rientjes@google.com>
+Cc: Xin Hao <xhao@linux.alibaba.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/dbgfs.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/mm/damon/dbgfs.c b/mm/damon/dbgfs.c
+index 8bf9e38b60f4..05b574cbcea8 100644
+--- a/mm/damon/dbgfs.c
++++ b/mm/damon/dbgfs.c
+@@ -277,7 +277,7 @@ static ssize_t dbgfs_schemes_write(struct file *file, const char __user *buf,
+ 
+ static inline bool target_has_pid(const struct damon_ctx *ctx)
+ {
+-	return ctx->ops.target_valid == damon_va_target_valid;
++	return ctx->ops.id == DAMON_OPS_VADDR;
+ }
+ 
+ static ssize_t sprint_target_ids(struct damon_ctx *ctx, char *buf, ssize_t len)
+@@ -741,8 +741,8 @@ static struct damon_ctx *dbgfs_new_ctx(void)
+ 	if (!ctx)
+ 		return NULL;
+ 
+-	if (damon_select_ops(ctx, DAMON_OPS_VADDR) && damon_select_ops(ctx,
+-				DAMON_OPS_PADDR)) {
++	if (damon_select_ops(ctx, DAMON_OPS_VADDR) &&
++			damon_select_ops(ctx, DAMON_OPS_PADDR)) {
+ 		damon_destroy_ctx(ctx);
+ 		return NULL;
+ 	}
+-- 
+2.32.0
+

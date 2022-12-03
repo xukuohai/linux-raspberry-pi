@@ -1,0 +1,54 @@
+From 11d30c344924084429cf56c8c246a009490419ac Mon Sep 17 00:00:00 2001
+From: Jianyong Wu <jianyong.wu@arm.com>
+Date: Wed, 9 Dec 2020 14:09:28 +0800
+Subject: clocksource: Add clocksource id for arm arch counter
+
+Add clocksource id to the ARM generic counter so that it can be easily
+identified from callers such as ptp_kvm.
+
+Cc: Mark Rutland <mark.rutland@arm.com>
+Reviewed-by: Andre Przywara <andre.przywara@arm.com>
+Signed-off-by: Jianyong Wu <jianyong.wu@arm.com>
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+Link: https://lore.kernel.org/r/20201209060932.212364-6-jianyong.wu@arm.com
+(cherry picked from commit 100148d0fc7dcf8672fe0ac83f44dc5749b4da5c)
+---
+ drivers/clocksource/arm_arch_timer.c | 2 ++
+ include/linux/clocksource_ids.h      | 1 +
+ 2 files changed, 3 insertions(+)
+
+diff --git a/drivers/clocksource/arm_arch_timer.c b/drivers/clocksource/arm_arch_timer.c
+index f4881764bf8f..6c211e04b745 100644
+--- a/drivers/clocksource/arm_arch_timer.c
++++ b/drivers/clocksource/arm_arch_timer.c
+@@ -16,6 +16,7 @@
+ #include <linux/cpu_pm.h>
+ #include <linux/clockchips.h>
+ #include <linux/clocksource.h>
++#include <linux/clocksource_ids.h>
+ #include <linux/interrupt.h>
+ #include <linux/of_irq.h>
+ #include <linux/of_address.h>
+@@ -191,6 +192,7 @@ static u64 arch_counter_read_cc(const struct cyclecounter *cc)
+ 
+ static struct clocksource clocksource_counter = {
+ 	.name	= "arch_sys_counter",
++	.id	= CSID_ARM_ARCH_COUNTER,
+ 	.rating	= 400,
+ 	.read	= arch_counter_read,
+ 	.mask	= CLOCKSOURCE_MASK(56),
+diff --git a/include/linux/clocksource_ids.h b/include/linux/clocksource_ids.h
+index 4d8e19e05328..16775d7d8f8d 100644
+--- a/include/linux/clocksource_ids.h
++++ b/include/linux/clocksource_ids.h
+@@ -5,6 +5,7 @@
+ /* Enum to give clocksources a unique identifier */
+ enum clocksource_ids {
+ 	CSID_GENERIC		= 0,
++	CSID_ARM_ARCH_COUNTER,
+ 	CSID_MAX,
+ };
+ 
+-- 
+2.32.0
+

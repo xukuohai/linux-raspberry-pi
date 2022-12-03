@@ -1,0 +1,34 @@
+From b1f0c3039d9aec3d67aea7de69d136e8415c9a63 Mon Sep 17 00:00:00 2001
+From: Xin Hao <xhao@linux.alibaba.com>
+Date: Tue, 22 Mar 2022 14:50:00 -0700
+Subject: mm/damon/sysfs: remove repeat container_of() in
+ damon_sysfs_kdamond_release()
+
+In damon_sysfs_kdamond_release(), we have use container_of() to get
+"kdamond" pointer, so there no need to get it once again.
+
+Link: https://lkml.kernel.org/r/20220303075314.22502-1-xhao@linux.alibaba.com
+Signed-off-by: Xin Hao <xhao@linux.alibaba.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/sysfs.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/sysfs.c b/mm/damon/sysfs.c
+index 58bcd2f5b02a..48e434cd43d8 100644
+--- a/mm/damon/sysfs.c
++++ b/mm/damon/sysfs.c
+@@ -2345,7 +2345,7 @@ static void damon_sysfs_kdamond_release(struct kobject *kobj)
+ 
+ 	if (kdamond->damon_ctx)
+ 		damon_destroy_ctx(kdamond->damon_ctx);
+-	kfree(container_of(kobj, struct damon_sysfs_kdamond, kobj));
++	kfree(kdamond);
+ }
+ 
+ static struct kobj_attribute damon_sysfs_kdamond_state_attr =
+-- 
+2.32.0
+

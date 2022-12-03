@@ -1,0 +1,179 @@
+From 541af4232b7f8cbdeee86f7ac9e281a61069aab7 Mon Sep 17 00:00:00 2001
+From: Ard Biesheuvel <ardb@kernel.org>
+Date: Tue, 17 Nov 2020 13:47:29 +0100
+Subject: arm64: head: tidy up the Image header definition
+
+Even though support for EFI boot remains entirely optional for arm64,
+it is unlikely that we will ever be able to repurpose the image header
+fields that the EFI loader relies on, i.e., the magic NOP at offset
+0x0 and the PE header address at offset 0x3c.
+
+So let's factor out the differences into a 'efi_signature_nop' macro and
+a local symbol representing the PE header address, and move the
+conditional definitions into efi-header.S, taking into account whether
+CONFIG_EFI is enabled or not. While at it, switch to a signature NOP
+that behaves more like a NOP, i.e., one that only clobbers the
+flags.
+
+Signed-off-by: Ard Biesheuvel <ardb@kernel.org>
+Acked-by: Will Deacon <will@kernel.org>
+Link: https://lore.kernel.org/r/20201117124729.12642-4-ardb@kernel.org
+Signed-off-by: Catalin Marinas <catalin.marinas@arm.com>
+(cherry picked from commit 7919385b9fb3cefe495310e5c44ca8a6d9c446e8)
+---
+ arch/arm64/kernel/efi-header.S | 43 ++++++++++++++++++++++++++--------
+ arch/arm64/kernel/head.S       | 19 ++-------------
+ 2 files changed, 35 insertions(+), 27 deletions(-)
+
+diff --git a/arch/arm64/kernel/efi-header.S b/arch/arm64/kernel/efi-header.S
+index 0a7267e9a594..f4414598102d 100644
+--- a/arch/arm64/kernel/efi-header.S
++++ b/arch/arm64/kernel/efi-header.S
+@@ -7,7 +7,27 @@
+ #include <linux/pe.h>
+ #include <linux/sizes.h>
+ 
++	.macro	efi_signature_nop
++#ifdef CONFIG_EFI
++.L_head:
++	/*
++	 * This ccmp instruction has no meaningful effect except that
++	 * its opcode forms the magic "MZ" signature required by UEFI.
++	 */
++	ccmp	x18, #0, #0xd, pl
++#else
++	/*
++	 * Bootloaders may inspect the opcode at the start of the kernel
++	 * image to decide if the kernel is capable of booting via UEFI.
++	 * So put an ordinary NOP here, not the "MZ.." pseudo-nop above.
++	 */
++	nop
++#endif
++	.endm
++
+ 	.macro	__EFI_PE_HEADER
++#ifdef CONFIG_EFI
++	.set	.Lpe_header_offset, . - .L_head
+ 	.long	PE_MAGIC
+ 	.short	IMAGE_FILE_MACHINE_ARM64		// Machine
+ 	.short	.Lsection_count				// NumberOfSections
+@@ -26,8 +46,8 @@
+ 	.long	__initdata_begin - .Lefi_header_end	// SizeOfCode
+ 	.long	__pecoff_data_size			// SizeOfInitializedData
+ 	.long	0					// SizeOfUninitializedData
+-	.long	__efistub_efi_pe_entry - _head		// AddressOfEntryPoint
+-	.long	.Lefi_header_end - _head		// BaseOfCode
++	.long	__efistub_efi_pe_entry - .L_head	// AddressOfEntryPoint
++	.long	.Lefi_header_end - .L_head		// BaseOfCode
+ 
+ 	.quad	0					// ImageBase
+ 	.long	SEGMENT_ALIGN				// SectionAlignment
+@@ -40,10 +60,10 @@
+ 	.short	0					// MinorSubsystemVersion
+ 	.long	0					// Win32VersionValue
+ 
+-	.long	_end - _head				// SizeOfImage
++	.long	_end - .L_head				// SizeOfImage
+ 
+ 	// Everything before the kernel image is considered part of the header
+-	.long	.Lefi_header_end - _head		// SizeOfHeaders
++	.long	.Lefi_header_end - .L_head		// SizeOfHeaders
+ 	.long	0					// CheckSum
+ 	.short	IMAGE_SUBSYSTEM_EFI_APPLICATION		// Subsystem
+ 	.short	0					// DllCharacteristics
+@@ -62,7 +82,7 @@
+ 	.quad	0					// BaseRelocationTable
+ 
+ #ifdef CONFIG_DEBUG_EFI
+-	.long	.Lefi_debug_table - _head		// DebugTable
++	.long	.Lefi_debug_table - .L_head		// DebugTable
+ 	.long	.Lefi_debug_table_size
+ #endif
+ 
+@@ -70,9 +90,9 @@
+ .Lsection_table:
+ 	.ascii	".text\0\0\0"
+ 	.long	__initdata_begin - .Lefi_header_end	// VirtualSize
+-	.long	.Lefi_header_end - _head		// VirtualAddress
++	.long	.Lefi_header_end - .L_head		// VirtualAddress
+ 	.long	__initdata_begin - .Lefi_header_end	// SizeOfRawData
+-	.long	.Lefi_header_end - _head		// PointerToRawData
++	.long	.Lefi_header_end - .L_head		// PointerToRawData
+ 
+ 	.long	0					// PointerToRelocations
+ 	.long	0					// PointerToLineNumbers
+@@ -84,9 +104,9 @@
+ 
+ 	.ascii	".data\0\0\0"
+ 	.long	__pecoff_data_size			// VirtualSize
+-	.long	__initdata_begin - _head		// VirtualAddress
++	.long	__initdata_begin - .L_head		// VirtualAddress
+ 	.long	__pecoff_data_rawsize			// SizeOfRawData
+-	.long	__initdata_begin - _head		// PointerToRawData
++	.long	__initdata_begin - .L_head		// PointerToRawData
+ 
+ 	.long	0					// PointerToRelocations
+ 	.long	0					// PointerToLineNumbers
+@@ -121,7 +141,7 @@
+ 	.long	IMAGE_DEBUG_TYPE_CODEVIEW		// Type
+ 	.long	.Lefi_debug_entry_size			// SizeOfData
+ 	.long	0					// RVA
+-	.long	.Lefi_debug_entry - _head		// FileOffset
++	.long	.Lefi_debug_entry - .L_head		// FileOffset
+ 
+ 	.set	.Lefi_debug_table_size, . - .Lefi_debug_table
+ 	.previous
+@@ -147,4 +167,7 @@
+ 	 */
+ 	.balign	SEGMENT_ALIGN
+ .Lefi_header_end:
++#else
++	.set	.Lpe_header_offset, 0x0
++#endif
+ 	.endm
+diff --git a/arch/arm64/kernel/head.S b/arch/arm64/kernel/head.S
+index 8ce490a072bb..51f1a0620948 100644
+--- a/arch/arm64/kernel/head.S
++++ b/arch/arm64/kernel/head.S
+@@ -59,21 +59,11 @@
+  * in the entry routines.
+  */
+ 	__HEAD
+-_head:
+ 	/*
+ 	 * DO NOT MODIFY. Image header expected by Linux boot-loaders.
+ 	 */
+-#ifdef CONFIG_EFI
+-	/*
+-	 * This add instruction has no meaningful effect except that
+-	 * its opcode forms the magic "MZ" signature required by UEFI.
+-	 */
+-	add	x13, x18, #0x16
+-	b	primary_entry
+-#else
++	efi_signature_nop			// special NOP to identity as PE/COFF executable
+ 	b	primary_entry			// branch to kernel start, magic
+-	.long	0				// reserved
+-#endif
+ 	.quad	0				// Image load offset from start of RAM, little-endian
+ 	le64sym	_kernel_size_le			// Effective size of kernel image, little-endian
+ 	le64sym	_kernel_flags_le		// Informative flags, little-endian
+@@ -81,14 +71,9 @@ _head:
+ 	.quad	0				// reserved
+ 	.quad	0				// reserved
+ 	.ascii	ARM64_IMAGE_MAGIC		// Magic number
+-#ifdef CONFIG_EFI
+-	.long	pe_header - _head		// Offset to the PE header.
++	.long	.Lpe_header_offset		// Offset to the PE header.
+ 
+-pe_header:
+ 	__EFI_PE_HEADER
+-#else
+-	.long	0				// reserved
+-#endif
+ 
+ 	__INIT
+ 
+-- 
+2.32.0
+

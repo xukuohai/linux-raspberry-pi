@@ -1,0 +1,45 @@
+From 5c58103f62b535336bbe3d6a75e6683956ada0e6 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Sun, 24 Mar 2019 20:16:13 +0000
+Subject: lustre: account for the SO_*TIMEO -> SO_*TIME_OLD rename
+
+Post 5.0, the in-kernel SO_SNDTIMEO and SO_RCVTIMEO defines
+got a _OLD suffix, to deal with the 2038 64bit time_t interface
+changes.
+
+Deal with this by defining them to their _OLD values if the
+_OLD values are defined.
+
+Linux commit: 45bdc66159d49bfc7f75fe02d25bc74f5d2660cf ("socket: Rename SO_RCVTIMEO/ SO_SNDTIMEO with _OLD suffixes")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lnet/lnet/lib-socket.c | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+index 6bd3f4e21429..faa8fc3a0110 100644
+--- a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
++++ b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+@@ -43,6 +43,18 @@
+ #include <libcfs/libcfs.h>
+ #include <lnet/lib-lnet.h>
+ 
++/*
++ * Deal with the post-5.0 rename of these in-kernel values.
++ */
++#if !defined(SO_RCVTIMEO) && defined(SO_RCVTIMEO_OLD)
++#define SO_RCVTIMEO SO_RCVTIMEO_OLD
++#endif
++
++#if !defined(SO_SNDTIMEO) && defined(SO_SNDTIMEO_OLD)
++#define SO_SNDTIMEO SO_SNDTIMEO_OLD
++#endif
++
++
+ static int
+ kernel_sock_unlocked_ioctl(struct file *filp, int cmd, unsigned long arg)
+ {
+-- 
+2.32.0
+

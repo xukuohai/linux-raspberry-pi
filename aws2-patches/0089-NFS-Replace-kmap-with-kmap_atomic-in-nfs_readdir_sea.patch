@@ -1,0 +1,39 @@
+From 8f536ab64b31230fe84bfc70087c71aff0837bdd Mon Sep 17 00:00:00 2001
+From: Trond Myklebust <trond.myklebust@hammerspace.com>
+Date: Sun, 1 Nov 2020 13:34:32 -0500
+Subject: NFS: Replace kmap() with kmap_atomic() in nfs_readdir_search_array()
+
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+Reviewed-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Dave Wysochanski <dwysocha@redhat.com>
+(cherry picked from commit ed09222d651dbd30e707f96180628229146b885c)
+---
+ fs/nfs/dir.c | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index 1c2fe400344b..8df86c8fe249 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -447,7 +447,7 @@ int nfs_readdir_search_array(nfs_readdir_descriptor_t *desc)
+ 	struct nfs_cache_array *array;
+ 	int status;
+ 
+-	array = kmap(desc->page);
++	array = kmap_atomic(desc->page);
+ 
+ 	if (desc->dir_cookie == 0)
+ 		status = nfs_readdir_search_for_pos(array, desc);
+@@ -459,7 +459,7 @@ int nfs_readdir_search_array(nfs_readdir_descriptor_t *desc)
+ 		desc->current_index += array->size;
+ 		desc->page_index++;
+ 	}
+-	kunmap(desc->page);
++	kunmap_atomic(array);
+ 	return status;
+ }
+ 
+-- 
+2.32.0
+

@@ -1,0 +1,66 @@
+From 34d95af6ca06b40b9ddf771ccee563e0d078977c Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 13 Oct 2020 22:24:46 +0000
+Subject: lustre: Fix compilation with MOFED 5.1
+
+    LU-13761 o2ib: Fix compilation with MOFED 5.1
+
+    A new argument was added to rdma_reject() in MOFED 5.1 and
+    Linux 5.8.
+
+    Add a cofigure check and support both versions of rdma_reject().
+
+    Test-Parameters: trivial
+    Signed-off-by: Sergey Gorenko <sergeygo@mellanox.com>
+    Change-Id: I2b28991f335658b651b21a09899b7b17ab2a9d57
+    Reviewed-on: https://review.whamcloud.com/39323
+    Reviewed-by: Neil Brown <neilb@suse.de>
+    Reviewed-by: Alexey Lyashkov <alexey.lyashkov@hpe.com>
+    Reviewed-by: James Simmons <jsimmons@infradead.org>
+    Tested-by: jenkins <devops@whamcloud.com>
+    Tested-by: Maloo <maloo@whamcloud.com>
+    Reviewed-by: Oleg Drokin <green@whamcloud.com>
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h                        | 5 ++++-
+ drivers/staging/lustrefsx/lnet/klnds/o2iblnd/o2iblnd_cb.c | 4 ++++
+ 2 files changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index 4359ad014348..99c60fb260a7 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -922,9 +922,12 @@
+ /* __add_wait_queue_exclusive exists */
+ /* #undef HAVE___ADD_WAIT_QUEUE_EXCLUSIVE */
+ 
+-/* NR_UNSTABLE_NFS is still in use */
++/* NR_UNSTABLE_NFS is still in use. */
+ /* #undef HAVE_NR_UNSTABLE_NFS */
+ 
++/* rdma_reject has 4 arguments */
++#define HAVE_RDMA_REJECT_4ARGS
++
+ /* ext4_journal_start takes 3 arguments */
+ /* #undef JOURNAL_START_HAS_3ARGS */
+ 
+diff --git a/drivers/staging/lustrefsx/lnet/klnds/o2iblnd/o2iblnd_cb.c b/drivers/staging/lustrefsx/lnet/klnds/o2iblnd/o2iblnd_cb.c
+index 751a4211c835..a27a83748c37 100644
+--- a/drivers/staging/lustrefsx/lnet/klnds/o2iblnd/o2iblnd_cb.c
++++ b/drivers/staging/lustrefsx/lnet/klnds/o2iblnd/o2iblnd_cb.c
+@@ -2217,7 +2217,11 @@ kiblnd_reject(struct rdma_cm_id *cmid, kib_rej_t *rej)
+ {
+         int          rc;
+ 
++#ifdef HAVE_RDMA_REJECT_4ARGS
++	rc = rdma_reject(cmid, rej, sizeof(*rej), IB_CM_REJ_CONSUMER_DEFINED);
++#else
+         rc = rdma_reject(cmid, rej, sizeof(*rej));
++#endif
+ 
+         if (rc != 0)
+                 CWARN("Error %d sending reject\n", rc);
+-- 
+2.32.0
+

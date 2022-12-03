@@ -1,0 +1,99 @@
+From ad3ab04d99c1197483929e02cf9e33a3e9b313b2 Mon Sep 17 00:00:00 2001
+From: Shaoying Xu <shaoyi@amazon.com>
+Date: Tue, 2 Aug 2022 01:41:16 +0000
+Subject: ENA: Update to v2.7.4
+
+Source: https://github.com/amzn/amzn-drivers/
+
+Change Log:
+
+## r2.7.4 release notes
+**Bug Fixes**
+* Fix remaining space check in DRB
+
+Signed-off-by: Shaoying Xu <shaoyi@amazon.com>
+---
+ drivers/amazon/net/ena/ena_netdev.c | 16 ++++++++--------
+ drivers/amazon/net/ena/ena_netdev.h |  2 +-
+ 2 files changed, 9 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/amazon/net/ena/ena_netdev.c b/drivers/amazon/net/ena/ena_netdev.c
+index 096677a2e8bf..55c3c141c81a 100644
+--- a/drivers/amazon/net/ena/ena_netdev.c
++++ b/drivers/amazon/net/ena/ena_netdev.c
+@@ -1074,15 +1074,15 @@ static struct sk_buff *ena_alloc_skb(struct ena_ring *rx_ring, void *first_frag,
+ 	return skb;
+ }
+ 
+-static bool ena_try_rx_buf_page_reuse(struct ena_rx_buffer *rx_info,
+-				       u16 buf_len, u16 len)
++static bool ena_try_rx_buf_page_reuse(struct ena_rx_buffer *rx_info, u16 buf_len,
++				      u16 len, int pkt_offset)
+ {
+ 	struct ena_com_buf *ena_buf = &rx_info->ena_buf;
+ 
+ 	/* More than ENA_MIN_RX_BUF_SIZE left in the reused buffer
+-	 * for data + headroom + tailroom
++	 * for data + headroom + tailroom.
+ 	 */
+-	if (SKB_DATA_ALIGN(len) + ENA_MIN_RX_BUF_SIZE <= ena_buf->len) {
++	if (SKB_DATA_ALIGN(len + pkt_offset) + ENA_MIN_RX_BUF_SIZE <= ena_buf->len) {
+ 		page_ref_inc(rx_info->page);
+ 		rx_info->page_offset += buf_len;
+ 		ena_buf->paddr += buf_len;
+@@ -1133,6 +1133,7 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring,
+ 		  rx_info, rx_info->page);
+ 
+ 	buf_offset = rx_info->buf_offset;
++	pkt_offset = buf_offset - rx_ring->rx_headroom;
+ 	page_offset = rx_info->page_offset;
+ 	buf_addr = page_address(rx_info->page) + page_offset;
+ 
+@@ -1141,8 +1142,6 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring,
+ 		if (unlikely(!skb))
+ 			return NULL;
+ 
+-		pkt_offset = buf_offset - rx_ring->rx_headroom;
+-
+ 		/* sync this buffer for CPU use */
+ 		dma_sync_single_for_cpu(rx_ring->dev,
+ 					dma_unmap_addr(&rx_info->ena_buf, paddr) + pkt_offset,
+@@ -1171,7 +1170,7 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring,
+ 
+ 	/* If XDP isn't loaded try to reuse part of the RX buffer */
+ 	reuse_rx_buf_page = !is_xdp_loaded &&
+-			    ena_try_rx_buf_page_reuse(rx_info, buf_len, len);
++			    ena_try_rx_buf_page_reuse(rx_info, buf_len, len, pkt_offset);
+ 
+ 	if (!reuse_rx_buf_page)
+ 		ena_unmap_rx_buff(rx_ring, rx_info);
+@@ -1223,11 +1222,12 @@ static struct sk_buff *ena_rx_skb(struct ena_ring *rx_ring,
+ 
+ 		/* rx_info->buf_offset includes rx_ring->rx_headroom */
+ 		buf_offset = rx_info->buf_offset;
++		pkt_offset = buf_offset - rx_ring->rx_headroom;
+ 		buf_len = SKB_DATA_ALIGN(len + buf_offset + tailroom);
+ 		page_offset = rx_info->page_offset;
+ 
+ 		reuse_rx_buf_page = !is_xdp_loaded &&
+-				    ena_try_rx_buf_page_reuse(rx_info, buf_len, len);
++				    ena_try_rx_buf_page_reuse(rx_info, buf_len, len, pkt_offset);
+ 
+ 		if (!reuse_rx_buf_page)
+ 			ena_unmap_rx_buff(rx_ring, rx_info);
+diff --git a/drivers/amazon/net/ena/ena_netdev.h b/drivers/amazon/net/ena/ena_netdev.h
+index be7e50da737a..e19cd75be698 100644
+--- a/drivers/amazon/net/ena/ena_netdev.h
++++ b/drivers/amazon/net/ena/ena_netdev.h
+@@ -26,7 +26,7 @@
+ 
+ #define DRV_MODULE_GEN_MAJOR	2
+ #define DRV_MODULE_GEN_MINOR	7
+-#define DRV_MODULE_GEN_SUBMINOR 3
++#define DRV_MODULE_GEN_SUBMINOR 4
+ 
+ #define DRV_MODULE_NAME		"ena"
+ #ifndef DRV_MODULE_GENERATION
+-- 
+2.32.0
+

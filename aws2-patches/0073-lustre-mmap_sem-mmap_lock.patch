@@ -1,0 +1,83 @@
+From 658a70ea5082913347404c4bf304e929e227328a Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 16 Oct 2020 15:29:59 +0000
+Subject: lustre: mmap_sem -> mmap_lock
+
+Commit da1c55f1b272 ("mmap locking API: rename mmap_sem to mmap_lock")
+changed the name of mmap_sem, so follow suit.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../staging/lustrefsx/libcfs/libcfs/linux/linux-curproc.c | 8 ++++----
+ drivers/staging/lustrefsx/lustre/llite/llite_mmap.c       | 4 ++--
+ drivers/staging/lustrefsx/lustre/llite/vvp_io.c           | 4 ++--
+ 3 files changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-curproc.c b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-curproc.c
+index 38ca4bc97be9..36a4fdef2dc2 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-curproc.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-curproc.c
+@@ -137,11 +137,11 @@ static int cfs_access_process_vm(struct task_struct *tsk,
+ 	struct page *page;
+ 	void *old_buf = buf;
+ 
+-	/* Avoid deadlocks on mmap_sem if called from sys_mmap_pgoff(),
+-	 * which is already holding mmap_sem for writes.  If some other
++	/* Avoid deadlocks on mmap_lock if called from sys_mmap_pgoff(),
++	 * which is already holding mmap_lock for writes.  If some other
+ 	 * thread gets the write lock in the meantime, this thread will
+ 	 * block, but at least it won't deadlock on itself.  LU-1735 */
+-	if (down_read_trylock(&mm->mmap_sem) == 0)
++	if (down_read_trylock(&mm->mmap_lock) == 0)
+ 		return -EDEADLK;
+ 
+ 	/* ignore errors, just check how much was successfully transferred */
+@@ -181,7 +181,7 @@ static int cfs_access_process_vm(struct task_struct *tsk,
+ 		buf += bytes;
+ 		addr += bytes;
+ 	}
+-	up_read(&mm->mmap_sem);
++	up_read(&mm->mmap_lock);
+ 
+ 	return buf - old_buf;
+ }
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+index 839b71076455..30cf21b77881 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_mmap.c
+@@ -57,8 +57,8 @@ struct vm_area_struct *our_vma(struct mm_struct *mm, unsigned long addr,
+         struct vm_area_struct *vma, *ret = NULL;
+         ENTRY;
+ 
+-        /* mmap_sem must have been held by caller. */
+-        LASSERT(!down_write_trylock(&mm->mmap_sem));
++        /* mmap_lock must have been held by caller. */
++        LASSERT(!down_write_trylock(&mm->mmap_lock));
+ 
+         for(vma = find_vma(mm, addr);
+             vma != NULL && vma->vm_start < (addr + count); vma = vma->vm_next) {
+diff --git a/drivers/staging/lustrefsx/lustre/llite/vvp_io.c b/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
+index 404cee02a469..a71b7b60d90f 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
++++ b/drivers/staging/lustrefsx/lustre/llite/vvp_io.c
+@@ -458,7 +458,7 @@ static int vvp_mmap_locks(const struct lu_env *env, struct cl_io *io)
+ 		count += addr & ~PAGE_MASK;
+ 		addr &= PAGE_MASK;
+ 
+-                down_read(&mm->mmap_sem);
++                down_read(&mm->mmap_lock);
+                 while((vma = our_vma(mm, addr, count)) != NULL) {
+ 			struct dentry *de = file_dentry(vma->vm_file);
+ 			struct inode *inode = de->d_inode;
+@@ -500,7 +500,7 @@ static int vvp_mmap_locks(const struct lu_env *env, struct cl_io *io)
+ 			count -= vma->vm_end - addr;
+ 			addr = vma->vm_end;
+ 		}
+-		up_read(&mm->mmap_sem);
++		up_read(&mm->mmap_lock);
+ 		if (result < 0)
+ 			break;
+ 	}
+-- 
+2.32.0
+

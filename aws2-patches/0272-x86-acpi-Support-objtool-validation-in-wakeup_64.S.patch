@@ -1,0 +1,55 @@
+From 83ee2f2c577014cd598a6248ac6273b6117db749 Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 21 Jan 2021 15:29:33 -0600
+Subject: x86/acpi: Support objtool validation in wakeup_64.S
+
+The OBJECT_FILES_NON_STANDARD annotation is used to tell objtool to
+ignore a file.  File-level ignores won't work when validating vmlinux.o.
+
+Instead, tell objtool to ignore do_suspend_lowlevel() directly with the
+STACK_FRAME_NON_STANDARD annotation.
+
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Len Brown <len.brown@intel.com>
+Cc: Pavel Machek <pavel@ucw.cz>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Link: https://lore.kernel.org/r/269eda576c53bc9ecc8167c211989111013a67aa.1611263462.git.jpoimboe@redhat.com
+(cherry picked from commit aeb818fcc94071e44203b3a36392562e5b88d9ec)
+---
+ arch/x86/kernel/acpi/Makefile    | 1 -
+ arch/x86/kernel/acpi/wakeup_64.S | 2 ++
+ 2 files changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kernel/acpi/Makefile b/arch/x86/kernel/acpi/Makefile
+index f1bb57b0e41e..cf340d85946a 100644
+--- a/arch/x86/kernel/acpi/Makefile
++++ b/arch/x86/kernel/acpi/Makefile
+@@ -1,5 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0
+-OBJECT_FILES_NON_STANDARD_wakeup_$(BITS).o := y
+ 
+ obj-$(CONFIG_ACPI)		+= boot.o
+ obj-$(CONFIG_ACPI_SLEEP)	+= sleep.o wakeup_$(BITS).o
+diff --git a/arch/x86/kernel/acpi/wakeup_64.S b/arch/x86/kernel/acpi/wakeup_64.S
+index c8daa92f38dc..b57333f567bc 100644
+--- a/arch/x86/kernel/acpi/wakeup_64.S
++++ b/arch/x86/kernel/acpi/wakeup_64.S
+@@ -1,6 +1,7 @@
+ /* SPDX-License-Identifier: GPL-2.0-only */
+ .text
+ #include <linux/linkage.h>
++#include <linux/objtool.h>
+ #include <asm/segment.h>
+ #include <asm/pgtable_types.h>
+ #include <asm/page_types.h>
+@@ -126,6 +127,7 @@ SYM_FUNC_START(do_suspend_lowlevel)
+ 	FRAME_END
+ 	jmp	restore_processor_state
+ SYM_FUNC_END(do_suspend_lowlevel)
++STACK_FRAME_NON_STANDARD do_suspend_lowlevel
+ 
+ .data
+ saved_rbp:		.quad	0
+-- 
+2.32.0
+

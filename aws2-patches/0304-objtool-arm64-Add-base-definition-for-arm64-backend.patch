@@ -1,0 +1,355 @@
+From 61b45610ccb78d2506266539dfda4595c635dc66 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 9 Sep 2020 09:39:07 +0100
+Subject: objtool: arm64: Add base definition for arm64 backend
+
+Provide needed definitions for a new architecture instruction decoder.
+No proper decoding is done yet.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/lib/insn.c                         |   4 +-
+ tools/objtool/Makefile                        |   5 +
+ tools/objtool/arch/arm64/Build                |   8 +
+ tools/objtool/arch/arm64/decode.c             | 141 ++++++++++++++++++
+ .../arch/arm64/include/arch/cfi_regs.h        |  14 ++
+ tools/objtool/arch/arm64/include/arch/elf.h   |   6 +
+ .../arch/arm64/include/arch/endianness.h      |   9 ++
+ .../objtool/arch/arm64/include/arch/special.h |  21 +++
+ tools/objtool/arch/arm64/special.c            |  21 +++
+ tools/objtool/sync-check.sh                   |  10 +-
+ 10 files changed, 236 insertions(+), 3 deletions(-)
+ create mode 100644 tools/objtool/arch/arm64/Build
+ create mode 100644 tools/objtool/arch/arm64/decode.c
+ create mode 100644 tools/objtool/arch/arm64/include/arch/cfi_regs.h
+ create mode 100644 tools/objtool/arch/arm64/include/arch/elf.h
+ create mode 100644 tools/objtool/arch/arm64/include/arch/endianness.h
+ create mode 100644 tools/objtool/arch/arm64/include/arch/special.h
+ create mode 100644 tools/objtool/arch/arm64/special.c
+
+diff --git a/arch/arm64/lib/insn.c b/arch/arm64/lib/insn.c
+index bfa3a6ec0b13..c2374373a70e 100644
+--- a/arch/arm64/lib/insn.c
++++ b/arch/arm64/lib/insn.c
+@@ -11,10 +11,10 @@
+ #include <linux/sizes.h>
+ #include <linux/types.h>
+ 
+-#include <asm/debug-monitors.h>
++#include <asm/debug-monitors.h>	/* __ignore_sync_check__ */
+ #include <asm/errno.h>
+ #include <asm/insn.h>
+-#include <asm/kprobes.h>
++#include <asm/kprobes.h>	/* __ignore_sync_check__ */
+ 
+ #define AARCH64_INSN_SF_BIT	BIT(31)
+ #define AARCH64_INSN_N_BIT	BIT(22)
+diff --git a/tools/objtool/Makefile b/tools/objtool/Makefile
+index 92ce4fce7bc7..d5cfbec87c02 100644
+--- a/tools/objtool/Makefile
++++ b/tools/objtool/Makefile
+@@ -47,6 +47,11 @@ ifeq ($(SRCARCH),x86)
+ 	SUBCMD_ORC := y
+ endif
+ 
++ifeq ($(SRCARCH),arm64)
++	SUBCMD_CHECK := y
++	CFLAGS  += -Wno-nested-externs
++endif
++
+ export SUBCMD_CHECK SUBCMD_ORC
+ export srctree OUTPUT CFLAGS SRCARCH AWK
+ include $(srctree)/tools/build/Makefile.include
+diff --git a/tools/objtool/arch/arm64/Build b/tools/objtool/arch/arm64/Build
+new file mode 100644
+index 000000000000..f3de3a50d541
+--- /dev/null
++++ b/tools/objtool/arch/arm64/Build
+@@ -0,0 +1,8 @@
++objtool-y += special.o
++objtool-y += decode.o
++
++objtool-y += libhweight.o
++
++$(OUTPUT)arch/arm64/libhweight.o: ../lib/hweight.c FORCE
++	$(call rule_mkdir)
++	$(call if_changed_dep,cc_o_c)
+diff --git a/tools/objtool/arch/arm64/decode.c b/tools/objtool/arch/arm64/decode.c
+new file mode 100644
+index 000000000000..05452ad25a47
+--- /dev/null
++++ b/tools/objtool/arch/arm64/decode.c
+@@ -0,0 +1,141 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <stdint.h>
++
++#include <asm/insn.h>
++
++#include <objtool/check.h>
++#include <objtool/arch.h>
++#include <objtool/elf.h>
++#include <objtool/warn.h>
++
++#include <arch/cfi_regs.h>
++
++/* Hack needed to avoid depending on debug-monitors.h */
++#define AARCH64_BREAK_FAULT	0xBAD
++
++/* Hack needed to avoid depending on kprobes.h */
++#ifndef __kprobes
++#define __kprobes
++#endif
++
++#include "../../../arch/arm64/lib/insn.c"
++
++bool arch_callee_saved_reg(unsigned char reg)
++{
++	switch (reg) {
++	case AARCH64_INSN_REG_19:
++	case AARCH64_INSN_REG_20:
++	case AARCH64_INSN_REG_21:
++	case AARCH64_INSN_REG_22:
++	case AARCH64_INSN_REG_23:
++	case AARCH64_INSN_REG_24:
++	case AARCH64_INSN_REG_25:
++	case AARCH64_INSN_REG_26:
++	case AARCH64_INSN_REG_27:
++	case AARCH64_INSN_REG_28:
++	case AARCH64_INSN_REG_FP:
++	case AARCH64_INSN_REG_LR:
++		return true;
++	default:
++		return false;
++	}
++}
++
++void arch_initial_func_cfi_state(struct cfi_init_state *state)
++{
++	int i;
++
++	for (i = 0; i < CFI_NUM_REGS; i++) {
++		state->regs[i].base = CFI_UNDEFINED;
++		state->regs[i].offset = 0;
++	}
++
++	/* initial CFA (call frame address) */
++	state->cfa.base = CFI_SP;
++	state->cfa.offset = 0;
++}
++
++unsigned long arch_dest_reloc_offset(int addend)
++{
++	return addend;
++}
++
++unsigned long arch_jump_destination(struct instruction *insn)
++{
++	return insn->offset + insn->immediate;
++}
++
++const char *arch_nop_insn(int len)
++{
++	static u32 nop = 0;
++
++	if (len != AARCH64_INSN_SIZE)
++		WARN("invalid NOP size: %d\n", len);
++
++	if (!nop)
++		nop = aarch64_insn_gen_nop();
++
++	return (const char*)&nop;
++}
++
++const char *arch_ret_insn(int len)
++{
++	return arch_nop_insn(len);
++}
++
++static int is_arm64(const struct elf *elf)
++{
++	switch (elf->ehdr.e_machine) {
++	case EM_AARCH64: //0xB7
++		return 1;
++	default:
++		WARN("unexpected ELF machine type %x",
++		     elf->ehdr.e_machine);
++		return 0;
++	}
++}
++
++int arch_decode_hint_reg(u8 sp_reg, int *base)
++{
++	if (sp_reg == UNWIND_HINT_REG_UNDEFINED)
++		*base = CFI_UNDEFINED;
++	else
++		*base = sp_reg;
++
++	return 0;
++}
++}
++
++int arch_decode_instruction(const struct elf *elf, const struct section *sec,
++			    unsigned long offset, unsigned int maxlen,
++			    unsigned int *len, enum insn_type *type,
++			    unsigned long *immediate,
++			    struct list_head *ops_list)
++{
++	u32 insn;
++
++	if (!is_arm64(elf))
++		return -1;
++
++	if (maxlen < AARCH64_INSN_SIZE)
++		return 0;
++
++	*len = AARCH64_INSN_SIZE;
++	*immediate = 0;
++
++	insn = *(u32 *)(sec->data->d_buf + offset);
++
++	switch (aarch64_get_insn_class(insn)) {
++	case AARCH64_INSN_CLS_UNKNOWN:
++		WARN("can't decode instruction at %s:0x%lx", sec->name, offset);
++		return -1;
++	default:
++		*type = INSN_OTHER;
++		break;
++	}
++
++	return 0;
++}
+diff --git a/tools/objtool/arch/arm64/include/arch/cfi_regs.h b/tools/objtool/arch/arm64/include/arch/cfi_regs.h
+new file mode 100644
+index 000000000000..a5185649686b
+--- /dev/null
++++ b/tools/objtool/arch/arm64/include/arch/cfi_regs.h
+@@ -0,0 +1,14 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _OBJTOOL_CFI_REGS_H
++#define _OBJTOOL_CFI_REGS_H
++
++#include <asm/insn.h>
++
++#define CFI_BP			AARCH64_INSN_REG_FP
++#define CFI_RA			AARCH64_INSN_REG_LR
++#define CFI_SP			AARCH64_INSN_REG_SP
++
++#define CFI_NUM_REGS		32
++
++#endif /* _OBJTOOL_CFI_REGS_H */
+diff --git a/tools/objtool/arch/arm64/include/arch/elf.h b/tools/objtool/arch/arm64/include/arch/elf.h
+new file mode 100644
+index 000000000000..a31a29b1a386
+--- /dev/null
++++ b/tools/objtool/arch/arm64/include/arch/elf.h
+@@ -0,0 +1,6 @@
++#ifndef _OBJTOOL_ARCH_ELF
++#define _OBJTOOL_ARCH_ELF
++
++#define R_NONE R_AARCH64_NONE
++
++#endif /* _OBJTOOL_ARCH_ELF */
+diff --git a/tools/objtool/arch/arm64/include/arch/endianness.h b/tools/objtool/arch/arm64/include/arch/endianness.h
+new file mode 100644
+index 000000000000..7c362527da20
+--- /dev/null
++++ b/tools/objtool/arch/arm64/include/arch/endianness.h
+@@ -0,0 +1,9 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef _ARCH_ENDIANNESS_H
++#define _ARCH_ENDIANNESS_H
++
++#include <endian.h>
++
++#define __TARGET_BYTE_ORDER __LITTLE_ENDIAN
++
++#endif /* _ARCH_ENDIANNESS_H */
+diff --git a/tools/objtool/arch/arm64/include/arch/special.h b/tools/objtool/arch/arm64/include/arch/special.h
+new file mode 100644
+index 000000000000..a82a9b3e51df
+--- /dev/null
++++ b/tools/objtool/arch/arm64/include/arch/special.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++
++#ifndef _ARM64_ARCH_SPECIAL_H
++#define _ARM64_ARCH_SPECIAL_H
++
++#define EX_ENTRY_SIZE		8
++#define EX_ORIG_OFFSET		0
++#define EX_NEW_OFFSET		4
++
++#define JUMP_ENTRY_SIZE		16
++#define JUMP_ORIG_OFFSET	0
++#define JUMP_NEW_OFFSET		4
++
++#define ALT_ENTRY_SIZE		12
++#define ALT_ORIG_OFFSET		0
++#define ALT_NEW_OFFSET		4
++#define ALT_FEATURE_OFFSET	8
++#define ALT_ORIG_LEN_OFFSET	10
++#define ALT_NEW_LEN_OFFSET	11
++
++#endif /* _ARM64_ARCH_SPECIAL_H */
+diff --git a/tools/objtool/arch/arm64/special.c b/tools/objtool/arch/arm64/special.c
+new file mode 100644
+index 000000000000..45f283283091
+--- /dev/null
++++ b/tools/objtool/arch/arm64/special.c
+@@ -0,0 +1,21 @@
++// SPDX-License-Identifier: GPL-2.0-or-later
++
++#include <objtool/special.h>
++
++void arch_handle_alternative(unsigned short feature, struct special_alt *alt)
++{
++}
++
++bool arch_support_alt_relocation(struct special_alt *special_alt,
++				 struct instruction *insn,
++				 struct reloc *reloc)
++{
++	return false;
++}
++
++
++struct reloc *arch_find_switch_table(struct objtool_file *file,
++				     struct instruction *insn)
++{
++	return NULL;
++}
+diff --git a/tools/objtool/sync-check.sh b/tools/objtool/sync-check.sh
+index 4bbabaecab14..bdcc443ea094 100755
+--- a/tools/objtool/sync-check.sh
++++ b/tools/objtool/sync-check.sh
+@@ -24,6 +24,14 @@ arch/x86/include/asm/insn.h
+ arch/x86/lib/inat.c
+ arch/x86/lib/insn.c
+ '
++elif [ "$SRCARCH" = "arm64" ]; then
++FILES="$FILES
++arch/arm64/include/asm/insn.h
++"
++
++SYNC_CHECK_FILES='
++arch/arm64/lib/insn.c
++'
+ fi
+ 
+ check_2 () {
+@@ -67,7 +75,7 @@ done <<EOF
+ $FILES
+ EOF
+ 
+-if [ "$SRCARCH" = "x86" ]; then
++if [ "$SRCARCH" = "x86" ] || [ "$SRCARCH" = "arm64" ]; then
+ 	for i in $SYNC_CHECK_FILES; do
+ 		check $i '-I "^.*\/\*.*__ignore_sync_check__.*\*\/.*$"'
+ 	done
+-- 
+2.32.0
+

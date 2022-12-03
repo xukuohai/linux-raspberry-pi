@@ -1,0 +1,59 @@
+From d4acda8a74efcd25eee020a98b5536793d745c6f Mon Sep 17 00:00:00 2001
+From: Ilias Stamatis <ilstam@amazon.com>
+Date: Wed, 26 May 2021 19:44:08 +0100
+Subject: math64.h: Add mul_s64_u64_shr()
+
+This function is needed for KVM's nested virtualization. The nested TSC
+scaling implementation requires multiplying the signed TSC offset with
+the unsigned TSC multiplier.
+
+Note: Backported to 5.10
+
+Signed-off-by: Ilias Stamatis <ilstam@amazon.com>
+Reviewed-by: Maxim Levitsky <mlevitsk@redhat.com>
+Message-Id: <20210526184418.28881-2-ilstam@amazon.com>
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+---
+ include/linux/math64.h | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/include/linux/math64.h b/include/linux/math64.h
+index 66deb1fdc2ef..302f380b535a 100644
+--- a/include/linux/math64.h
++++ b/include/linux/math64.h
+@@ -3,6 +3,7 @@
+ #define _LINUX_MATH64_H
+ 
+ #include <linux/types.h>
++#include <linux/kernel.h>
+ #include <vdso/math64.h>
+ #include <asm/div64.h>
+ 
+@@ -234,6 +235,24 @@ static inline u64 mul_u64_u64_shr(u64 a, u64 b, unsigned int shift)
+ 
+ #endif
+ 
++#ifndef mul_s64_u64_shr
++static inline u64 mul_s64_u64_shr(s64 a, u64 b, unsigned int shift)
++{
++	u64 ret;
++
++	/*
++	 * Extract the sign before the multiplication and put it back
++	 * afterwards if needed.
++	 */
++	ret = mul_u64_u64_shr(abs(a), b, shift);
++
++	if (a < 0)
++		ret = -((s64) ret);
++
++	return ret;
++}
++#endif /* mul_s64_u64_shr */
++
+ #ifndef mul_u64_u32_div
+ static inline u64 mul_u64_u32_div(u64 a, u32 mul, u32 divisor)
+ {
+-- 
+2.32.0
+

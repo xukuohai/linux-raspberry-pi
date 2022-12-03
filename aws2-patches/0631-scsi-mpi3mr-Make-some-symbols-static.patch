@@ -1,0 +1,67 @@
+From 17aed3ff3a484965265015590c44579c29bef029 Mon Sep 17 00:00:00 2001
+From: Yang Yingliang <yangyingliang@huawei.com>
+Date: Fri, 4 Jun 2021 15:14:07 +0800
+Subject: scsi: mpi3mr: Make some symbols static
+
+Fix the following warnings:
+
+  drivers/scsi/mpi3mr/mpi3mr_os.c:24:5: warning: symbol 'prot_mask' was not declared. Should it be static?
+  drivers/scsi/mpi3mr/mpi3mr_os.c:28:5: warning: symbol 'prot_guard_mask' was not declared. Should it be static?
+  drivers/scsi/mpi3mr/mpi3mr_os.c:31:5: warning: symbol 'logging_level' was not declared. Should it be static?
+
+Link: https://lore.kernel.org/r/20210604071407.1360742-1-yangyingliang@huawei.com
+Reported-by: Hulk Robot <hulkci@huawei.com>
+Acked-by: Kashyap Desai <kashyap.desai@broadcom.com>
+Signed-off-by: Yang Yingliang <yangyingliang@huawei.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+(cherry picked from commit 6fe3a4ab4c3138fa0bce960708c605d99d421c0c)
+---
+ drivers/scsi/mpi3mr/mpi3mr.h    | 1 +
+ drivers/scsi/mpi3mr/mpi3mr_fw.c | 1 -
+ drivers/scsi/mpi3mr/mpi3mr_os.c | 4 ++--
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/scsi/mpi3mr/mpi3mr.h b/drivers/scsi/mpi3mr/mpi3mr.h
+index 5d5529167350..6f5dc9e78553 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr.h
++++ b/drivers/scsi/mpi3mr/mpi3mr.h
+@@ -50,6 +50,7 @@
+ /* Global list and lock for storing multiple adapters managed by the driver */
+ extern spinlock_t mrioc_list_lock;
+ extern struct list_head mrioc_list;
++extern int prot_mask;
+ 
+ #define MPI3MR_DRIVER_VERSION	"00.255.45.01"
+ #define MPI3MR_DRIVER_RELDATE	"12-December-2020"
+diff --git a/drivers/scsi/mpi3mr/mpi3mr_fw.c b/drivers/scsi/mpi3mr/mpi3mr_fw.c
+index 00f2d0d91ee4..9eceafca59bc 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr_fw.c
++++ b/drivers/scsi/mpi3mr/mpi3mr_fw.c
+@@ -9,7 +9,6 @@
+ 
+ #include "mpi3mr.h"
+ #include <linux/io-64-nonatomic-lo-hi.h>
+-extern int prot_mask;
+ 
+ #if defined(writeq) && defined(CONFIG_64BIT)
+ static inline void mpi3mr_writeq(__u64 b, volatile void __iomem *addr)
+diff --git a/drivers/scsi/mpi3mr/mpi3mr_os.c b/drivers/scsi/mpi3mr/mpi3mr_os.c
+index aff8560edaf3..efefd303a21d 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr_os.c
++++ b/drivers/scsi/mpi3mr/mpi3mr_os.c
+@@ -25,10 +25,10 @@ int prot_mask = -1;
+ module_param(prot_mask, int, 0);
+ MODULE_PARM_DESC(prot_mask, "Host protection capabilities mask, def=0x07");
+ 
+-int prot_guard_mask = 3;
++static int prot_guard_mask = 3;
+ module_param(prot_guard_mask, int, 0);
+ MODULE_PARM_DESC(prot_guard_mask, " Host protection guard mask, def=3");
+-int logging_level;
++static int logging_level;
+ module_param(logging_level, int, 0);
+ MODULE_PARM_DESC(logging_level,
+ 	" bits for enabling additional logging info (default=0)");
+-- 
+2.32.0
+

@@ -1,0 +1,38 @@
+From 5a35fbf69bc8b1c7916a771fb3313e4897eaac60 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:21 +0000
+Subject: Revert "include/linux/damon.h: fix kernel-doc comments for
+ 'damon_callback'"
+
+This reverts commit 16fb669c55c0f9826fce5d9a0187fced8a45f12a.
+---
+ include/linux/damon.h | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 755d70804705..d68b67b8d458 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -62,7 +62,7 @@ struct damon_target {
+ struct damon_ctx;
+ 
+ /**
+- * struct damon_primitive - Monitoring primitives for given use cases.
++ * struct damon_primitive	Monitoring primitives for given use cases.
+  *
+  * @init:			Initialize primitive-internal data structures.
+  * @update:			Update primitive-internal data structures.
+@@ -108,8 +108,8 @@ struct damon_primitive {
+ 	void (*cleanup)(struct damon_ctx *context);
+ };
+ 
+-/**
+- * struct damon_callback - Monitoring events notification callbacks.
++/*
++ * struct damon_callback	Monitoring events notification callbacks.
+  *
+  * @before_start:	Called before starting the monitoring.
+  * @after_sampling:	Called after each sampling.
+-- 
+2.32.0
+

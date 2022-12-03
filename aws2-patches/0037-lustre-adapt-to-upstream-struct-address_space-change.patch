@@ -1,0 +1,141 @@
+From 5d68d45d6a8899ca73db87f08b8f94d919e11ddf Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 4 Mar 2019 22:06:36 +0000
+Subject: lustre: adapt to upstream struct address_space changes
+
+In later kernels, two changes were made to struct address_space:
+1. Locking was changed and page_tree was renamed to i_pages (4.17)
+2. The page storage data structure was converted from a radix tree
+   to an Xarray. (4.20)
+
+Adapt for both these changes. The first change was made while (an
+older version of) Lustre was still in the tree. The second change
+was made after Lustre was removed from the tree, but a Lustre change
+was still included in an earlier version of the patch series posted.
+The code change was partially taken from this version of the patch
+(https://lore.kernel.org/patchwork/patch/933300/).
+
+Linux commit: b93b016313b3 ("page cache: use xa_lock")
+Linux commit: eb797a8ee0ab ("page cache: Rearrange address_space")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/lustre/include/lustre_compat.h  | 20 +++++++++++++
+ .../staging/lustrefsx/lustre/llite/glimpse.c  | 10 +++++++
+ .../lustrefsx/lustre/mdc/mdc_request.c        | 28 +++++++++++++++++--
+ 3 files changed, 55 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index a900bba89839..c5915f000a0a 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -694,4 +694,24 @@ static inline struct timespec current_time(struct inode *inode)
+ #define __GFP_COLD 0
+ #endif
+ 
++#ifndef HAVE_ADDRESS_SPACE_XARRAY
++static inline void lock_mappings(struct address_space *mappings)
++{
++#ifdef HAVE_ADDRESS_SPACE_IPAGES
++	xa_lock_irq(&mappings->i_pages);
++#else
++	spin_lock_irq(&mappings->tree_lock);
++#endif
++}
++
++static inline void unlock_mappings(struct address_space *mappings)
++{
++#ifdef HAVE_ADDRESS_SPACE_IPAGES
++	xa_unlock_irq(&mappings->i_pages);
++#else
++	spin_unlock_irq(&mappings->tree_lock);
++#endif
++}
++#endif
++
+ #endif /* _LUSTRE_COMPAT_H */
+diff --git a/drivers/staging/lustrefsx/lustre/llite/glimpse.c b/drivers/staging/lustrefsx/lustre/llite/glimpse.c
+index d34be28747bd..55deb8236bd4 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/glimpse.c
++++ b/drivers/staging/lustrefsx/lustre/llite/glimpse.c
+@@ -66,12 +66,22 @@ blkcnt_t dirty_cnt(struct inode *inode)
+ {
+         blkcnt_t cnt = 0;
+ 	struct vvp_object *vob = cl_inode2vvp(inode);
++#ifndef HAVE_ADDRESS_SPACE_XARRAY
+         void              *results[1];
+ 
+         if (inode->i_mapping != NULL)
++#ifdef HAVE_ADDRESS_SPACE_IPAGES
++                cnt += radix_tree_gang_lookup_tag(&inode->i_mapping->i_pages,
++#else
+                 cnt += radix_tree_gang_lookup_tag(&inode->i_mapping->page_tree,
++#endif
+                                                   results, 0, 1,
+                                                   PAGECACHE_TAG_DIRTY);
++#else
++	if (inode->i_mapping && mapping_tagged(inode->i_mapping,
++				PAGECACHE_TAG_DIRTY))
++		cnt = 1;
++#endif
+ 	if (cnt == 0 && atomic_read(&vob->vob_mmap_cnt) > 0)
+ 		cnt = 1;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/mdc/mdc_request.c b/drivers/staging/lustrefsx/lustre/mdc/mdc_request.c
+index 681e5bd94a6c..1530f5e8c342 100644
+--- a/drivers/staging/lustrefsx/lustre/mdc/mdc_request.c
++++ b/drivers/staging/lustrefsx/lustre/mdc/mdc_request.c
+@@ -990,16 +990,34 @@ static struct page *mdc_page_locate(struct address_space *mapping, __u64 *hash,
+ 	 */
+ 	unsigned long offset = hash_x_index(*hash, hash64);
+ 	struct page *page;
++#ifdef HAVE_ADDRESS_SPACE_XARRAY
++	XA_STATE(xas, &mapping->i_pages, offset);
++
++	xas_lock_irq(&xas);
++	page = xas_find(&xas, ULONG_MAX);
++	if (xa_is_value(page))
++		page = NULL;
++	if (page) {
++#else
+ 	int found;
+ 
+-	spin_lock_irq(&mapping->tree_lock);
++	lock_mappings(mapping);
++#ifdef HAVE_ADDRESS_SPACE_IPAGES
++	found = radix_tree_gang_lookup(&mapping->i_pages,
++#else
+ 	found = radix_tree_gang_lookup(&mapping->page_tree,
++#endif
+ 				       (void **)&page, offset, 1);
+ 	if (found > 0 && !radix_tree_exceptional_entry(page)) {
++#endif
+ 		struct lu_dirpage *dp;
+ 
+ 		get_page(page);
+-		spin_unlock_irq(&mapping->tree_lock);
++#ifdef HAVE_ADDRESS_SPACE_XARRAY
++		xas_unlock_irq(&xas);
++#else
++		unlock_mappings(mapping);
++#endif
+ 		/*
+ 		 * In contrast to find_lock_page() we are sure that directory
+ 		 * page cannot be truncated (while DLM lock is held) and,
+@@ -1048,8 +1066,12 @@ static struct page *mdc_page_locate(struct address_space *mapping, __u64 *hash,
+ 			page = ERR_PTR(-EIO);
+ 		}
+ 	} else {
+-		spin_unlock_irq(&mapping->tree_lock);
++#ifdef HAVE_ADDRESS_SPACE_XARRAY
++		xas_unlock_irq(&xas);
++#else
++		unlock_mappings(mapping);
+ 		page = NULL;
++#endif
+ 	}
+ 	return page;
+ }
+-- 
+2.32.0
+

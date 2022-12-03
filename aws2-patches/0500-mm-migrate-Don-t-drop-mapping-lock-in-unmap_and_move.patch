@@ -1,0 +1,146 @@
+From a4bff0d0aa84c22a06eecedd235b72787798785f Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Wed, 25 May 2022 15:36:38 -0700
+Subject: mm/migrate: Don't drop mapping lock in unmap_and_move_huge_page()
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+In unmap_and_move_huge_page() when unmapping a shared huge page the lock is
+taken, dropped again and then reacquired in remove_migration_ptes(). This can
+lead to a deadlock when a hugepage is being migrated while also being accessed
+and a process with it mapped is exiting. Leading to the following stack traces
+being observed.
+
+Process Accessing Huge Page: (Process A)
+	 Call trace:
+	  __switch_to+0xc0/0xec
+	  __schedule+0x27c/0x6e0
+	  schedule+0x54/0xe0
+	  io_schedule+0x48/0x68
+	  wait_on_page_bit_common+0x158/0x440
+	  put_and_wait_on_page_locked+0x60/0x80
+	  __migration_entry_wait+0x148/0x164
+	  migration_entry_wait_huge+0x78/0x84
+	  hugetlb_fault+0x464/0x594
+	  handle_mm_fault+0x1b0/0x240
+	  do_page_fault+0x154/0x420
+	  do_translation_fault+0xbc/0xe0
+	  do_mem_abort+0x4c/0xb8
+	  el0_da+0x3c/0x50
+	  el0_sync_handler+0xe0/0x120
+
+Process Migrating the Huge Page: (Process B)
+	 Call trace:
+	  __switch_to+0xc0/0xec
+	  __schedule+0x27c/0x6e0
+	  schedule+0x54/0xe0
+	  rwsem_down_read_slowpath+0x190/0x5c0
+	  down_read+0x68/0x80
+	  rmap_walk_file+0x1a4/0x280
+	  rmap_walk+0x58/0x88
+	  unmap_and_move_huge_page+0x1e8/0x3c0
+	  migrate_pages+0x9c/0x4a4
+	  do_migrate_range.isra.0+0x24c/0x41c
+	  offline_pages+0x374/0x460
+	  memory_subsys_offline+0x104/0x140
+	  device_offline+0x100/0x13c
+	  offline_and_remove_memory+0x88/0xd4
+	  remove_store+0x80/0xf0
+	  dev_attr_store+0x24/0x40
+	  sysfs_kf_write+0x50/0x60
+	  kernfs_fop_write_iter+0x134/0x1c4
+	  new_sync_write+0xf0/0x190
+	  vfs_write+0x22c/0x2c0
+	  ksys_write+0x74/0x100
+	  __arm64_sys_write+0x28/0x40
+	  el0_svc_common.constprop.0+0x80/0x1cc
+	  do_el0_svc+0x30/0x98
+	  el0_svc+0x20/0x3c
+	  el0_sync_handler+0x9c/0x120
+
+Process Exiting: (Process C)
+	 Call trace:
+	  __switch_to+0x80/0xa8
+	  __schedule+0x27c/0x6e0
+	  schedule+0x54/0xe0
+	  rwsem_down_write_slowpath+0x320/0x950
+	  down_write+0x7c/0x8c
+	  unlink_file_vma+0x3c/0xd0
+	  free_pgtables+0xa0/0x140
+	  exit_mmap+0xe4/0x1a0
+	  __mmput+0x44/0x194
+	  mmput+0x6c/0x80
+	  exit_mm+0x178/0x240
+	  do_exit+0x1ac/0x440
+	  do_group_exit+0x44/0xac
+	  __wake_up_parent+0x0/0x3c
+	  el0_svc_common.constprop.0+0x88/0x248
+	  do_el0_svc+0x30/0x98
+	  el0_svc+0x20/0x3c
+	  el0_sync_handler+0x9c/0x120
+
+Process A takes the mapping lock and then is waiting on the page lock.
+Process B has the page lock and is waiting on the mapping lock.
+Process C is waiting on the mapping lock.
+
+Remove this deadlock potential by having Process B hold onto the mapping lock
+(which it initially takes with a trylock()) rather than dropping it then trying
+to take it again. This means that if it can't get it Process A and C can still
+make progress.
+
+NOTE:
+Upstream this is being fixed by a rework of the code by the following series:
+https://lore.kernel.org/linux-mm/20220508183420.18488-2-mike.kravetz@oracle.com/
+
+Signed-off-by: Suraj Jitindar Singh <surajjs@amazon.com>
+---
+ mm/migrate.c | 12 ++++++------
+ 1 file changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/mm/migrate.c b/mm/migrate.c
+index b716b8fa2c3f..3d99797c1db2 100644
+--- a/mm/migrate.c
++++ b/mm/migrate.c
+@@ -1282,6 +1282,7 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
+ {
+ 	int rc = -EAGAIN;
+ 	int page_was_mapped = 0;
++	bool mapping_locked = false;
+ 	struct page *new_hpage;
+ 	struct anon_vma *anon_vma = NULL;
+ 	struct address_space *mapping = NULL;
+@@ -1332,7 +1333,6 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
+ 		goto put_anon;
+ 
+ 	if (page_mapped(hpage)) {
+-		bool mapping_locked = false;
+ 		enum ttu_flags ttu = TTU_MIGRATION|TTU_IGNORE_MLOCK;
+ 
+ 		if (!PageAnon(hpage)) {
+@@ -1352,17 +1352,17 @@ static int unmap_and_move_huge_page(new_page_t get_new_page,
+ 
+ 		try_to_unmap(hpage, ttu);
+ 		page_was_mapped = 1;
+-
+-		if (mapping_locked)
+-			i_mmap_unlock_write(mapping);
+ 	}
+ 
+ 	if (!page_mapped(hpage))
+ 		rc = move_to_new_page(new_hpage, hpage, mode);
+ 
+-	if (page_was_mapped)
++	if (page_was_mapped) {
+ 		remove_migration_ptes(hpage,
+-			rc == MIGRATEPAGE_SUCCESS ? new_hpage : hpage, false);
++			rc == MIGRATEPAGE_SUCCESS ? new_hpage : hpage, mapping_locked);
++		if (mapping_locked)
++			i_mmap_unlock_write(mapping);
++	}
+ 
+ unlock_put_anon:
+ 	unlock_page(new_hpage);
+-- 
+2.32.0
+

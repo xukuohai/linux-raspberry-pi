@@ -1,0 +1,151 @@
+From 5ac1f8ab7de4c841f0cba7e96d0891ba5201fa89 Mon Sep 17 00:00:00 2001
+From: KP Singh <kpsingh@google.com>
+Date: Fri, 6 Nov 2020 10:37:43 +0000
+Subject: bpf: Implement get_current_task_btf and RET_PTR_TO_BTF_ID
+
+The currently available bpf_get_current_task returns an unsigned integer
+which can be used along with BPF_CORE_READ to read data from
+the task_struct but still cannot be used as an input argument to a
+helper that accepts an ARG_PTR_TO_BTF_ID of type task_struct.
+
+In order to implement this helper a new return type, RET_PTR_TO_BTF_ID,
+is added. This is similar to RET_PTR_TO_BTF_ID_OR_NULL but does not
+require checking the nullness of returned pointer.
+
+Signed-off-by: KP Singh <kpsingh@google.com>
+Signed-off-by: Alexei Starovoitov <ast@kernel.org>
+Acked-by: Song Liu <songliubraving@fb.com>
+Acked-by: Martin KaFai Lau <kafai@fb.com>
+Link: https://lore.kernel.org/bpf/20201106103747.2780972-6-kpsingh@chromium.org
+---
+ include/linux/bpf.h            |  1 +
+ include/uapi/linux/bpf.h       |  9 +++++++++
+ kernel/bpf/verifier.c          |  7 +++++--
+ kernel/trace/bpf_trace.c       | 16 ++++++++++++++++
+ tools/include/uapi/linux/bpf.h |  9 +++++++++
+ 5 files changed, 40 insertions(+), 2 deletions(-)
+
+diff --git a/include/linux/bpf.h b/include/linux/bpf.h
+index 5fdc7ec87961..8e2145767ea9 100644
+--- a/include/linux/bpf.h
++++ b/include/linux/bpf.h
+@@ -311,6 +311,7 @@ enum bpf_return_type {
+ 	RET_PTR_TO_BTF_ID_OR_NULL,	/* returns a pointer to a btf_id or NULL */
+ 	RET_PTR_TO_MEM_OR_BTF_ID_OR_NULL, /* returns a pointer to a valid memory or a btf_id or NULL */
+ 	RET_PTR_TO_MEM_OR_BTF_ID,	/* returns a pointer to a valid memory or a btf_id */
++	RET_PTR_TO_BTF_ID,		/* returns a pointer to a btf_id */
+ };
+ 
+ /* eBPF function prototype used by verifier to allow BPF_CALLs from eBPF programs
+diff --git a/include/uapi/linux/bpf.h b/include/uapi/linux/bpf.h
+index 20a6a9282a57..12c03ebcf81e 100644
+--- a/include/uapi/linux/bpf.h
++++ b/include/uapi/linux/bpf.h
+@@ -3752,6 +3752,14 @@ union bpf_attr {
+  * 	Return
+  * 		The helper returns **TC_ACT_REDIRECT** on success or
+  * 		**TC_ACT_SHOT** on error.
++ *
++ * struct task_struct *bpf_get_current_task_btf(void)
++ *	Description
++ *		Return a BTF pointer to the "current" task.
++ *		This pointer can also be used in helpers that accept an
++ *		*ARG_PTR_TO_BTF_ID* of type *task_struct*.
++ *	Return
++ *		Pointer to the current task.
+  */
+ #define __BPF_FUNC_MAPPER(FN)		\
+ 	FN(unspec),			\
+@@ -3910,6 +3918,7 @@ union bpf_attr {
+ 	FN(per_cpu_ptr),		\
+ 	FN(this_cpu_ptr),		\
+ 	FN(redirect_peer),		\
++	FN(get_current_task_btf),	\
+ 	/* */
+ 
+ /* integer value in 'imm' field of BPF_CALL instruction selects which helper
+diff --git a/kernel/bpf/verifier.c b/kernel/bpf/verifier.c
+index e4dcc23b52c0..98a2ab35ce4a 100644
+--- a/kernel/bpf/verifier.c
++++ b/kernel/bpf/verifier.c
+@@ -5506,11 +5506,14 @@ static int check_helper_call(struct bpf_verifier_env *env, int func_id, int insn
+ 				PTR_TO_BTF_ID : PTR_TO_BTF_ID_OR_NULL;
+ 			regs[BPF_REG_0].btf_id = meta.ret_btf_id;
+ 		}
+-	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL) {
++	} else if (fn->ret_type == RET_PTR_TO_BTF_ID_OR_NULL ||
++		   fn->ret_type == RET_PTR_TO_BTF_ID) {
+ 		int ret_btf_id;
+ 
+ 		mark_reg_known_zero(env, regs, BPF_REG_0);
+-		regs[BPF_REG_0].type = PTR_TO_BTF_ID_OR_NULL;
++		regs[BPF_REG_0].type = fn->ret_type == RET_PTR_TO_BTF_ID ?
++						     PTR_TO_BTF_ID :
++						     PTR_TO_BTF_ID_OR_NULL;
+ 		ret_btf_id = *fn->ret_btf_id;
+ 		if (ret_btf_id == 0) {
+ 			verbose(env, "invalid return type %d of func %s#%d\n",
+diff --git a/kernel/trace/bpf_trace.c b/kernel/trace/bpf_trace.c
+index c532f644ece7..a88056030dbe 100644
+--- a/kernel/trace/bpf_trace.c
++++ b/kernel/trace/bpf_trace.c
+@@ -1017,6 +1017,20 @@ const struct bpf_func_proto bpf_get_current_task_proto = {
+ 	.ret_type	= RET_INTEGER,
+ };
+ 
++BPF_CALL_0(bpf_get_current_task_btf)
++{
++	return (unsigned long) current;
++}
++
++BTF_ID_LIST_SINGLE(bpf_get_current_btf_ids, struct, task_struct)
++
++static const struct bpf_func_proto bpf_get_current_task_btf_proto = {
++	.func		= bpf_get_current_task_btf,
++	.gpl_only	= true,
++	.ret_type	= RET_PTR_TO_BTF_ID,
++	.ret_btf_id	= &bpf_get_current_btf_ids[0],
++};
++
+ BPF_CALL_2(bpf_current_task_under_cgroup, struct bpf_map *, map, u32, idx)
+ {
+ 	struct bpf_array *array = container_of(map, struct bpf_array, map);
+@@ -1260,6 +1274,8 @@ bpf_tracing_func_proto(enum bpf_func_id func_id, const struct bpf_prog *prog)
+ 		return &bpf_get_current_pid_tgid_proto;
+ 	case BPF_FUNC_get_current_task:
+ 		return &bpf_get_current_task_proto;
++	case BPF_FUNC_get_current_task_btf:
++		return &bpf_get_current_task_btf_proto;
+ 	case BPF_FUNC_get_current_uid_gid:
+ 		return &bpf_get_current_uid_gid_proto;
+ 	case BPF_FUNC_get_current_comm:
+diff --git a/tools/include/uapi/linux/bpf.h b/tools/include/uapi/linux/bpf.h
+index c38cb426ee15..8d8653a33453 100644
+--- a/tools/include/uapi/linux/bpf.h
++++ b/tools/include/uapi/linux/bpf.h
+@@ -3752,6 +3752,14 @@ union bpf_attr {
+  * 	Return
+  * 		The helper returns **TC_ACT_REDIRECT** on success or
+  * 		**TC_ACT_SHOT** on error.
++ *
++ * struct task_struct *bpf_get_current_task_btf(void)
++ *	Description
++ *		Return a BTF pointer to the "current" task.
++ *		This pointer can also be used in helpers that accept an
++ *		*ARG_PTR_TO_BTF_ID* of type *task_struct*.
++ *	Return
++ *		Pointer to the current task.
+  */
+ #define __BPF_FUNC_MAPPER(FN)		\
+ 	FN(unspec),			\
+@@ -3910,6 +3918,7 @@ union bpf_attr {
+ 	FN(per_cpu_ptr),		\
+ 	FN(this_cpu_ptr),		\
+ 	FN(redirect_peer),		\
++	FN(get_current_task_btf),	\
+ 	/* */
+ 
+ /* integer value in 'imm' field of BPF_CALL instruction selects which helper
+-- 
+2.32.0
+

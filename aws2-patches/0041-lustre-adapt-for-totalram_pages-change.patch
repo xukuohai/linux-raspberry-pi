@@ -1,0 +1,244 @@
+From 777d4ac4e59d744e580412fd4175eb23a409c8df Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 5 Mar 2019 20:58:46 +0000
+Subject: lustre: adapt for totalram_pages change
+
+totalram_pages was changed to a function in Linux 5.0. Adapt for this
+change by hiding it behind a TOTALRAM_PAGES define, which is defined
+differently depending on the HAVE_TOTALRAM_PAGES_FUNC config. Add the
+right include files to the files hat need to check this configuration.
+
+Linux commit: ca79b0c211af ("mm: convert totalram_pages and totalhigh_pages variables to atomic")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../staging/lustrefsx/libcfs/include/libcfs/libcfs_prim.h | 4 ++--
+ .../lustrefsx/libcfs/libcfs/linux/linux-tracefile.c       | 3 ++-
+ drivers/staging/lustrefsx/lustre/include/lustre_compat.h  | 6 ++++++
+ drivers/staging/lustrefsx/lustre/include/obd.h            | 4 ++--
+ drivers/staging/lustrefsx/lustre/ldlm/ldlm_lib.c          | 6 +++---
+ drivers/staging/lustrefsx/lustre/llite/lproc_llite.c      | 8 ++++----
+ drivers/staging/lustrefsx/lustre/obdclass/class_obd.c     | 6 +++---
+ .../lustrefsx/lustre/obdclass/linux/linux-sysctl.c        | 2 +-
+ drivers/staging/lustrefsx/lustre/obdclass/lu_object.c     | 2 +-
+ drivers/staging/lustrefsx/lustre/osc/lproc_osc.c          | 2 +-
+ drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c    | 2 +-
+ drivers/staging/lustrefsx/lustre/ptlrpc/sec_bulk.c        | 6 +++---
+ 12 files changed, 29 insertions(+), 22 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_prim.h b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_prim.h
+index c5923984d0dd..32a629e25eb7 100644
+--- a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_prim.h
++++ b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_prim.h
+@@ -44,9 +44,9 @@
+ #if BITS_PER_LONG == 32
+ /* limit to lowmem on 32-bit systems */
+ # define NUM_CACHEPAGES \
+-	min(totalram_pages, 1UL << (30 - PAGE_SHIFT) * 3 / 4)
++	min(TOTALRAM_PAGES, 1UL << (30 - PAGE_SHIFT) * 3 / 4)
+ #else
+-# define NUM_CACHEPAGES totalram_pages
++# define NUM_CACHEPAGES TOTALRAM_PAGES
+ #endif
+ 
+ static inline unsigned int memory_pressure_get(void)
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-tracefile.c b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-tracefile.c
+index 6e0861204454..274179dd54fe 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-tracefile.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-tracefile.c
+@@ -34,6 +34,7 @@
+ #define LUSTRE_TRACEFILE_PRIVATE
+ 
+ #include <libcfs/libcfs.h>
++#include <lustre_compat.h>
+ #include "tracefile.h"
+ 
+ /* percents to share the total debug memory for each type */
+@@ -266,7 +267,7 @@ void cfs_print_to_console(struct ptldebug_header *hdr, int mask,
+ 
+ int cfs_trace_max_debug_mb(void)
+ {
+-	int  total_mb = (totalram_pages >> (20 - PAGE_SHIFT));
++	int  total_mb = (TOTALRAM_PAGES >> (20 - PAGE_SHIFT));
+ 
+ 	return MAX(512, (total_mb * 80)/100);
+ }
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index 13582375848a..115d7f214148 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -724,4 +724,10 @@ static inline void unlock_mappings(struct address_space *mappings)
+ }
+ #endif
+ 
++#ifdef HAVE_TOTALRAM_PAGES_FUNC
++#define TOTALRAM_PAGES totalram_pages()
++#else
++#define TOTALRAM_PAGES totalram_pages
++#endif
++
+ #endif /* _LUSTRE_COMPAT_H */
+diff --git a/drivers/staging/lustrefsx/lustre/include/obd.h b/drivers/staging/lustrefsx/lustre/include/obd.h
+index ba31e450be2e..9910a189aef4 100644
+--- a/drivers/staging/lustrefsx/lustre/include/obd.h
++++ b/drivers/staging/lustrefsx/lustre/include/obd.h
+@@ -1220,8 +1220,8 @@ static inline void client_adjust_max_dirty(struct client_obd *cli)
+ 			cli->cl_dirty_max_pages = dirty_max;
+ 	}
+ 
+-	if (cli->cl_dirty_max_pages > totalram_pages / 8)
+-		cli->cl_dirty_max_pages = totalram_pages / 8;
++	if (cli->cl_dirty_max_pages > TOTALRAM_PAGES / 8)
++		cli->cl_dirty_max_pages = TOTALRAM_PAGES / 8;
+ }
+ 
+ #endif /* __OBD_H */
+diff --git a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_lib.c b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_lib.c
+index 3836f99d01aa..208ab5d481c8 100644
+--- a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_lib.c
++++ b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_lib.c
+@@ -415,11 +415,11 @@ int client_obd_setup(struct obd_device *obddev, struct lustre_cfg *lcfg)
+ 
+ 	if (!strcmp(name, LUSTRE_MDC_NAME)) {
+ 		cli->cl_max_rpcs_in_flight = OBD_MAX_RIF_DEFAULT;
+-	} else if (totalram_pages >> (20 - PAGE_SHIFT) <= 128 /* MB */) {
++	} else if (TOTALRAM_PAGES >> (20 - PAGE_SHIFT) <= 128 /* MB */) {
+ 		cli->cl_max_rpcs_in_flight = 2;
+-	} else if (totalram_pages >> (20 - PAGE_SHIFT) <= 256 /* MB */) {
++	} else if (TOTALRAM_PAGES >> (20 - PAGE_SHIFT) <= 256 /* MB */) {
+ 		cli->cl_max_rpcs_in_flight = 3;
+-	} else if (totalram_pages >> (20 - PAGE_SHIFT) <= 512 /* MB */) {
++	} else if (TOTALRAM_PAGES >> (20 - PAGE_SHIFT) <= 512 /* MB */) {
+ 		cli->cl_max_rpcs_in_flight = 4;
+ 	} else {
+ 		if (osc_on_mdt(obddev->obd_name))
+diff --git a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+index 7dfb36d2873c..d794bf9cd5f6 100755
+--- a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
++++ b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+@@ -308,12 +308,12 @@ ll_max_readahead_mb_seq_write(struct file *file, const char __user *buffer,
+ 
+ 	pages_number >>= PAGE_SHIFT;
+ 
+-	if (pages_number < 0 || pages_number > totalram_pages / 2) {
++	if (pages_number < 0 || pages_number > TOTALRAM_PAGES / 2) {
+ 		/* 1/2 of RAM */
+ 		CERROR("%s: can't set max_readahead_mb=%lu > %luMB\n",
+ 		       ll_get_fsname(sb, NULL, 0),
+ 		       (unsigned long)pages_number >> (20 - PAGE_SHIFT),
+-		       totalram_pages >> (20 - PAGE_SHIFT + 1));
++		       TOTALRAM_PAGES >> (20 - PAGE_SHIFT + 1));
+ 		return -ERANGE;
+ 	}
+ 
+@@ -479,10 +479,10 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
+ 
+ 	pages_number >>= PAGE_SHIFT;
+ 
+-	if (pages_number < 0 || pages_number > totalram_pages) {
++	if (pages_number < 0 || pages_number > TOTALRAM_PAGES) {
+ 		CERROR("%s: can't set max cache more than %lu MB\n",
+ 		       ll_get_fsname(sb, NULL, 0),
+-		       totalram_pages >> (20 - PAGE_SHIFT));
++		       TOTALRAM_PAGES >> (20 - PAGE_SHIFT));
+ 		RETURN(-ERANGE);
+ 	}
+ 	/* Allow enough cache so clients can make well-formed RPCs */
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/class_obd.c b/drivers/staging/lustrefsx/lustre/obdclass/class_obd.c
+index 913ae54465b4..8e2d803fe3bc 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/class_obd.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/class_obd.c
+@@ -540,10 +540,10 @@ static int __init obdclass_init(void)
+ 	/* Default the dirty page cache cap to 1/2 of system memory.
+ 	 * For clients with less memory, a larger fraction is needed
+ 	 * for other purposes (mostly for BGL). */
+-	if (totalram_pages <= 512 << (20 - PAGE_SHIFT))
+-		obd_max_dirty_pages = totalram_pages / 4;
++	if (TOTALRAM_PAGES <= 512 << (20 - PAGE_SHIFT))
++		obd_max_dirty_pages = TOTALRAM_PAGES / 4;
+ 	else
+-		obd_max_dirty_pages = totalram_pages / 2;
++		obd_max_dirty_pages = TOTALRAM_PAGES / 2;
+ 
+ 	err = obd_init_caches();
+ 	if (err)
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/linux/linux-sysctl.c b/drivers/staging/lustrefsx/lustre/obdclass/linux/linux-sysctl.c
+index 19f95b8187ca..a531c970c3fb 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/linux/linux-sysctl.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/linux/linux-sysctl.c
+@@ -111,7 +111,7 @@ static ssize_t max_dirty_mb_store(struct kobject *kobj, struct attribute *attr,
+ 
+ 	val *= 1 << (20 - PAGE_SHIFT); /* convert to pages */
+ 
+-	if (val > ((totalram_pages / 10) * 9)) {
++	if (val > ((TOTALRAM_PAGES / 10) * 9)) {
+ 		/* Somebody wants to assign too much memory to dirty pages */
+ 		return -EINVAL;
+ 	}
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lu_object.c b/drivers/staging/lustrefsx/lustre/obdclass/lu_object.c
+index f6a043b7af9e..96ebb4cf9b01 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lu_object.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lu_object.c
+@@ -888,7 +888,7 @@ static unsigned long lu_htable_order(struct lu_device *top)
+          *
+          * Size of lu_object is (arbitrary) taken as 1K (together with inode).
+          */
+-	cache_size = totalram_pages;
++	cache_size = TOTALRAM_PAGES;
+ 
+ #if BITS_PER_LONG == 32
+         /* limit hashtable size for lowmem systems to low RAM */
+diff --git a/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c b/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
+index c7c3f0cd5bb2..6c71d4c6b19d 100644
+--- a/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
++++ b/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
+@@ -160,7 +160,7 @@ static ssize_t osc_max_dirty_mb_seq_write(struct file *file,
+ 
+ 	if (pages_number <= 0 ||
+ 	    pages_number >= OSC_MAX_DIRTY_MB_MAX << (20 - PAGE_SHIFT) ||
+-	    pages_number > totalram_pages / 4) /* 1/4 of RAM */
++	    pages_number > TOTALRAM_PAGES / 4) /* 1/4 of RAM */
+ 		return -ERANGE;
+ 
+ 	spin_lock(&cli->cl_loi_list_lock);
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+index ed2058a159ed..93871b4c7d09 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+@@ -321,7 +321,7 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file,
+ 	 * far. */
+ 	bufpages = (svc->srv_buf_size + PAGE_SIZE - 1) >>
+ 							PAGE_SHIFT;
+-	if (val > totalram_pages/(2 * bufpages))
++	if (val > TOTALRAM_PAGES/(2 * bufpages))
+ 		return -ERANGE;
+ 
+ 	spin_lock(&svc->srv_lock);
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_bulk.c b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_bulk.c
+index 748962d4f17f..488b2398e434 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_bulk.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_bulk.c
+@@ -155,7 +155,7 @@ int sptlrpc_proc_enc_pool_seq_show(struct seq_file *m, void *v)
+ 		   "max waitqueue depth:     %u\n"
+ 		   "max wait time:           %ld/%lu\n"
+ 		   "out of mem:              %lu\n",
+-		   totalram_pages, PAGES_PER_POOL,
++		   TOTALRAM_PAGES, PAGES_PER_POOL,
+ 		   page_pools.epp_max_pages,
+ 		   page_pools.epp_max_pools,
+ 		   page_pools.epp_total_pages,
+@@ -775,9 +775,9 @@ int sptlrpc_enc_pool_init(void)
+ 	DEF_SHRINKER_VAR(shvar, enc_pools_shrink,
+ 			 enc_pools_shrink_count, enc_pools_shrink_scan);
+ 
+-	page_pools.epp_max_pages = totalram_pages / 8;
++	page_pools.epp_max_pages = TOTALRAM_PAGES / 8;
+ 	if (enc_pool_max_memory_mb > 0 &&
+-	    enc_pool_max_memory_mb <= (totalram_pages >> mult))
++	    enc_pool_max_memory_mb <= (TOTALRAM_PAGES >> mult))
+ 		page_pools.epp_max_pages = enc_pool_max_memory_mb << mult;
+ 
+ 	page_pools.epp_max_pools = npages_to_npools(page_pools.epp_max_pages);
+-- 
+2.32.0
+

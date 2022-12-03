@@ -1,0 +1,54 @@
+From c76506d00155892616eba0ec2d965dbff2c21823 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Fri, 14 Jan 2022 14:10:26 -0800
+Subject: Docs/admin-guide/mm/damon/reclaim: document statistics parameters
+
+This adds descriptions for the DAMON_RECLAIM statistics parameters.
+
+Link: https://lkml.kernel.org/r/20211210150016.35349-5-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ .../admin-guide/mm/damon/reclaim.rst          | 25 +++++++++++++++++++
+ 1 file changed, 25 insertions(+)
+
+diff --git a/Documentation/admin-guide/mm/damon/reclaim.rst b/Documentation/admin-guide/mm/damon/reclaim.rst
+index fb9def3a7355..0af51a9705b1 100644
+--- a/Documentation/admin-guide/mm/damon/reclaim.rst
++++ b/Documentation/admin-guide/mm/damon/reclaim.rst
+@@ -208,6 +208,31 @@ PID of the DAMON thread.
+ If DAMON_RECLAIM is enabled, this becomes the PID of the worker thread.  Else,
+ -1.
+ 
++nr_reclaim_tried_regions
++------------------------
++
++Number of memory regions that tried to be reclaimed by DAMON_RECLAIM.
++
++bytes_reclaim_tried_regions
++---------------------------
++
++Total bytes of memory regions that tried to be reclaimed by DAMON_RECLAIM.
++
++nr_reclaimed_regions
++--------------------
++
++Number of memory regions that successfully be reclaimed by DAMON_RECLAIM.
++
++bytes_reclaimed_regions
++-----------------------
++
++Total bytes of memory regions that successfully be reclaimed by DAMON_RECLAIM.
++
++nr_quota_exceeds
++----------------
++
++Number of times that the time/space quota limits have exceeded.
++
+ Example
+ =======
+ 
+-- 
+2.32.0
+

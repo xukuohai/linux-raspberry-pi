@@ -1,0 +1,60 @@
+From 00e5b704bf0f2652cb237ace0b7b2f1a63047455 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 10 Feb 2021 17:03:26 +0100
+Subject: arm64: Move instruction encoder/decoder under lib/
+
+Aarch64 instruction set encoding and decoding logic can prove useful
+for some features/tools both part of the kernel and outside the kernel.
+
+Isolate the function dealing only with encoding/decoding instructions,
+with minimal dependency on kernel utilities in order to be able to reuse
+that code.
+
+Code was only moved, no code should have been added, removed nor
+modifier.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/Makefile        | 2 +-
+ arch/arm64/lib/Makefile           | 6 +++---
+ arch/arm64/{kernel => lib}/insn.c | 0
+ 3 files changed, 4 insertions(+), 4 deletions(-)
+ rename arch/arm64/{kernel => lib}/insn.c (100%)
+
+diff --git a/arch/arm64/kernel/Makefile b/arch/arm64/kernel/Makefile
+index a22556ef7652..643acbc605be 100644
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -13,7 +13,7 @@ CFLAGS_REMOVE_return_address.o = $(CC_FLAGS_FTRACE)
+ obj-y			:= debug-monitors.o entry.o irq.o fpsimd.o		\
+ 			   entry-common.o entry-fpsimd.o process.o ptrace.o	\
+ 			   setup.o signal.o sys.o stacktrace.o time.o traps.o	\
+-			   io.o vdso.o hyp-stub.o psci.o cpu_ops.o insn.o	\
++			   io.o vdso.o hyp-stub.o psci.o cpu_ops.o		\
+ 			   return_address.o cpuinfo.o cpu_errata.o		\
+ 			   cpufeature.o alternative.o cacheinfo.o		\
+ 			   smp.o smp_spin_table.o topology.o smccc-call.o	\
+diff --git a/arch/arm64/lib/Makefile b/arch/arm64/lib/Makefile
+index d31e1169d9b8..9cd83908717d 100644
+--- a/arch/arm64/lib/Makefile
++++ b/arch/arm64/lib/Makefile
+@@ -1,9 +1,9 @@
+ # SPDX-License-Identifier: GPL-2.0
+ lib-y		:= clear_user.o delay.o copy_from_user.o		\
+ 		   copy_to_user.o copy_in_user.o copy_page.o		\
+-		   clear_page.o csum.o memchr.o memcpy.o memmove.o	\
+-		   memset.o memcmp.o strcmp.o strncmp.o strlen.o	\
+-		   strnlen.o strchr.o strrchr.o tishift.o
++		   clear_page.o csum.o insn.o memchr.o memcpy.o		\
++		   memmove.o memset.o memcmp.o strcmp.o strncmp.o	\
++		   strlen.o strnlen.o strchr.o strrchr.o tishift.o
+ 
+ ifeq ($(CONFIG_KERNEL_MODE_NEON), y)
+ obj-$(CONFIG_XOR_BLOCKS)	+= xor-neon.o
+diff --git a/arch/arm64/kernel/insn.c b/arch/arm64/lib/insn.c
+similarity index 100%
+rename from arch/arm64/kernel/insn.c
+rename to arch/arm64/lib/insn.c
+-- 
+2.32.0
+

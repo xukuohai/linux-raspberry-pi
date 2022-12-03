@@ -1,0 +1,168 @@
+From 6d5fb76b33e4edc4c5fb524f62c4b71061db9f02 Mon Sep 17 00:00:00 2001
+From: Anchal Agarwal <anchalag@amazon.com>
+Date: Mon, 11 Oct 2021 18:14:16 +0000
+Subject: Revert "mm/idle_page_tracking: Make PG_idle reusable"
+
+This reverts commit 9b390956bf78814d31154824361cf9efef592e8c.
+---
+ include/linux/page-flags.h     |  4 ++--
+ include/linux/page_ext.h       |  2 +-
+ include/linux/page_idle.h      |  6 +++---
+ include/trace/events/mmflags.h |  2 +-
+ mm/Kconfig                     |  8 --------
+ mm/page_ext.c                  | 12 +-----------
+ mm/page_idle.c                 | 10 ++++++++++
+ 7 files changed, 18 insertions(+), 26 deletions(-)
+
+diff --git a/include/linux/page-flags.h b/include/linux/page-flags.h
+index 0f010fc7f1c4..4f6ba9379112 100644
+--- a/include/linux/page-flags.h
++++ b/include/linux/page-flags.h
+@@ -132,7 +132,7 @@ enum pageflags {
+ #ifdef CONFIG_MEMORY_FAILURE
+ 	PG_hwpoison,		/* hardware poisoned page. Don't touch */
+ #endif
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && defined(CONFIG_64BIT)
++#if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
+ 	PG_young,
+ 	PG_idle,
+ #endif
+@@ -437,7 +437,7 @@ PAGEFLAG_FALSE(HWPoison)
+ #define __PG_HWPOISON 0
+ #endif
+ 
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && defined(CONFIG_64BIT)
++#if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
+ TESTPAGEFLAG(Young, young, PF_ANY)
+ SETPAGEFLAG(Young, young, PF_ANY)
+ TESTCLEARFLAG(Young, young, PF_ANY)
+diff --git a/include/linux/page_ext.h b/include/linux/page_ext.h
+index c9cbc9756011..cfce186f0c4e 100644
+--- a/include/linux/page_ext.h
++++ b/include/linux/page_ext.h
+@@ -19,7 +19,7 @@ struct page_ext_operations {
+ enum page_ext_flags {
+ 	PAGE_EXT_OWNER,
+ 	PAGE_EXT_OWNER_ALLOCATED,
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && !defined(CONFIG_64BIT)
++#if defined(CONFIG_IDLE_PAGE_TRACKING) && !defined(CONFIG_64BIT)
+ 	PAGE_EXT_YOUNG,
+ 	PAGE_EXT_IDLE,
+ #endif
+diff --git a/include/linux/page_idle.h b/include/linux/page_idle.h
+index d8a6aecf99cb..1e894d34bdce 100644
+--- a/include/linux/page_idle.h
++++ b/include/linux/page_idle.h
+@@ -6,7 +6,7 @@
+ #include <linux/page-flags.h>
+ #include <linux/page_ext.h>
+ 
+-#ifdef CONFIG_PAGE_IDLE_FLAG
++#ifdef CONFIG_IDLE_PAGE_TRACKING
+ 
+ #ifdef CONFIG_64BIT
+ static inline bool page_is_young(struct page *page)
+@@ -106,7 +106,7 @@ static inline void clear_page_idle(struct page *page)
+ }
+ #endif /* CONFIG_64BIT */
+ 
+-#else /* !CONFIG_PAGE_IDLE_FLAG */
++#else /* !CONFIG_IDLE_PAGE_TRACKING */
+ 
+ static inline bool page_is_young(struct page *page)
+ {
+@@ -135,6 +135,6 @@ static inline void clear_page_idle(struct page *page)
+ {
+ }
+ 
+-#endif /* CONFIG_PAGE_IDLE_FLAG */
++#endif /* CONFIG_IDLE_PAGE_TRACKING */
+ 
+ #endif /* _LINUX_MM_PAGE_IDLE_H */
+diff --git a/include/trace/events/mmflags.h b/include/trace/events/mmflags.h
+index ebee94c397a6..67018d367b9f 100644
+--- a/include/trace/events/mmflags.h
++++ b/include/trace/events/mmflags.h
+@@ -73,7 +73,7 @@
+ #define IF_HAVE_PG_HWPOISON(flag,string)
+ #endif
+ 
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && defined(CONFIG_64BIT)
++#if defined(CONFIG_IDLE_PAGE_TRACKING) && defined(CONFIG_64BIT)
+ #define IF_HAVE_PG_IDLE(flag,string) ,{1UL << flag, string}
+ #else
+ #define IF_HAVE_PG_IDLE(flag,string)
+diff --git a/mm/Kconfig b/mm/Kconfig
+index 500c885eb9f1..b97f2e8ab83f 100644
+--- a/mm/Kconfig
++++ b/mm/Kconfig
+@@ -749,18 +749,10 @@ config DEFERRED_STRUCT_PAGE_INIT
+ 	  lifetime of the system until these kthreads finish the
+ 	  initialisation.
+ 
+-config PAGE_IDLE_FLAG
+-	bool "Add PG_idle and PG_young flags"
+-	help
+-	  This feature adds PG_idle and PG_young flags in 'struct page'.  PTE
+-	  Accessed bit writers can set the state of the bit in the flags to let
+-	  other PTE Accessed bit readers don't disturbed.
+-
+ config IDLE_PAGE_TRACKING
+ 	bool "Enable idle page tracking"
+ 	depends on SYSFS && MMU
+ 	select PAGE_EXTENSION if !64BIT
+-	select PAGE_IDLE_FLAG
+ 	help
+ 	  This feature allows to estimate the amount of user pages that have
+ 	  not been touched during a given period of time. This information can
+diff --git a/mm/page_ext.c b/mm/page_ext.c
+index f9a6ff65ac0a..a3616f7a0e9e 100644
+--- a/mm/page_ext.c
++++ b/mm/page_ext.c
+@@ -58,21 +58,11 @@
+  * can utilize this callback to initialize the state of it correctly.
+  */
+ 
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && !defined(CONFIG_64BIT)
+-static bool need_page_idle(void)
+-{
+-	return true;
+-}
+-struct page_ext_operations page_idle_ops = {
+-	.need = need_page_idle,
+-};
+-#endif
+-
+ static struct page_ext_operations *page_ext_ops[] = {
+ #ifdef CONFIG_PAGE_OWNER
+ 	&page_owner_ops,
+ #endif
+-#if defined(CONFIG_PAGE_IDLE_FLAG) && !defined(CONFIG_64BIT)
++#if defined(CONFIG_IDLE_PAGE_TRACKING) && !defined(CONFIG_64BIT)
+ 	&page_idle_ops,
+ #endif
+ };
+diff --git a/mm/page_idle.c b/mm/page_idle.c
+index 144fb4ed961d..057c61df12db 100644
+--- a/mm/page_idle.c
++++ b/mm/page_idle.c
+@@ -211,6 +211,16 @@ static const struct attribute_group page_idle_attr_group = {
+ 	.name = "page_idle",
+ };
+ 
++#ifndef CONFIG_64BIT
++static bool need_page_idle(void)
++{
++	return true;
++}
++struct page_ext_operations page_idle_ops = {
++	.need = need_page_idle,
++};
++#endif
++
+ static int __init page_idle_init(void)
+ {
+ 	int err;
+-- 
+2.32.0
+

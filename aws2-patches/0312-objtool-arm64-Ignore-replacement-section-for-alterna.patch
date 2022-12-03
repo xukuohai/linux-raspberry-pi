@@ -1,0 +1,54 @@
+From aa82ba284ff9d5f64e27b6ef1d5fb65c34b48041 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Fri, 28 Aug 2020 17:04:12 +0100
+Subject: objtool: arm64: Ignore replacement section for alternative callback
+
+ARM64_CB_PATCH doesn't have static replacement instructions. Skip
+trying to validate the alternative section.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/objtool/arch/arm64/special.c | 12 ++++++++++++
+ tools/objtool/check.c              |  3 +++
+ 2 files changed, 15 insertions(+)
+
+diff --git a/tools/objtool/arch/arm64/special.c b/tools/objtool/arch/arm64/special.c
+index a70b91e8bd7d..ed642bd6f886 100644
+--- a/tools/objtool/arch/arm64/special.c
++++ b/tools/objtool/arch/arm64/special.c
+@@ -4,6 +4,18 @@
+ 
+ void arch_handle_alternative(unsigned short feature, struct special_alt *alt)
+ {
++	if (alt->orig_len && !alt->new_len) {
++		/*
++		 * ARM64_CB_PATCH has no alternative instruction.
++		 * a callback is called at alternative replacement time
++		 * to dynamically change the original instructions.
++		 *
++		 * ARM64_CB_PATCH is the last ARM64 feature, it's value changes
++		 * every time a new feature is added. So the orig/alt region
++		 * length are used to detect those alternatives
++		 */
++		alt->skip_alt = true;
++	}
+ }
+ 
+ bool arch_support_alt_relocation(struct special_alt *special_alt,
+diff --git a/tools/objtool/check.c b/tools/objtool/check.c
+index 98d2241e9186..2142c1dc42ca 100644
+--- a/tools/objtool/check.c
++++ b/tools/objtool/check.c
+@@ -1567,6 +1567,9 @@ static int add_special_section_alts(struct objtool_file *file)
+ 				continue;
+ 			}
+ 
++			if (special_alt->skip_alt && !special_alt->new_len)
++				continue;
++
+ 			ret = handle_group_alt(file, special_alt, orig_insn,
+ 					       &new_insn);
+ 			if (ret)
+-- 
+2.32.0
+

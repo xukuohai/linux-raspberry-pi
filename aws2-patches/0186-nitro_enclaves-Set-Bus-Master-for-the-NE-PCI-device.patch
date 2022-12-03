@@ -1,0 +1,44 @@
+From 5196f321a044259c3b0c40a1412528bce3fa8919 Mon Sep 17 00:00:00 2001
+From: "Longpeng(Mike)" <longpeng2@huawei.com>
+Date: Mon, 21 Jun 2021 08:40:46 +0800
+Subject: nitro_enclaves: Set Bus Master for the NE PCI device
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Enable Bus Master for the NE PCI device, according to the PCI spec
+for submitting memory or I/O requests:
+
+ Master Enable – Controls the ability of a PCI Express
+  Endpoint to issue Memory and I/O Read/Write Requests, and
+  the ability of a Root or Switch Port to forward Memory and
+  I/O Read/Write Requests in the Upstream direction
+
+Cc: Andra Paraschiv <andraprs@amazon.com>
+Cc: Alexandru Vasile <lexnv@amazon.com>
+Cc: Alexandru Ciobotaru <alcioa@amazon.com>
+Reviewed-by: Andra Paraschiv <andraprs@amazon.com>
+Signed-off-by: Longpeng(Mike) <longpeng2@huawei.com>
+Link: https://lore.kernel.org/r/20210621004046.1419-1-longpeng2@huawei.com
+Signed-off-by: Greg Kroah-Hartman <gregkh@linuxfoundation.org>
+(cherry picked from commit d874742f6a734c73c22235f9d56b8f10bcf17c5f)
+---
+ drivers/virt/nitro_enclaves/ne_pci_dev.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/virt/nitro_enclaves/ne_pci_dev.c b/drivers/virt/nitro_enclaves/ne_pci_dev.c
+index b9c1de41e300..143207e9b969 100644
+--- a/drivers/virt/nitro_enclaves/ne_pci_dev.c
++++ b/drivers/virt/nitro_enclaves/ne_pci_dev.c
+@@ -480,6 +480,8 @@ static int ne_pci_probe(struct pci_dev *pdev, const struct pci_device_id *id)
+ 		goto free_ne_pci_dev;
+ 	}
+ 
++	pci_set_master(pdev);
++
+ 	rc = pci_request_regions_exclusive(pdev, "nitro_enclaves");
+ 	if (rc < 0) {
+ 		dev_err(&pdev->dev, "Error in pci request regions [rc=%d]\n", rc);
+-- 
+2.32.0
+

@@ -1,0 +1,43 @@
+From 4da9d7af9b38b15de8c1891e774468ecfeb1eb31 Mon Sep 17 00:00:00 2001
+From: Andra Paraschiv <andraprs@amazon.com>
+Date: Fri, 27 Aug 2021 18:49:26 +0300
+Subject: nitro_enclaves: Add fix for the kernel-doc report
+
+Fix the reported issue from the kernel-doc script, to have a comment per
+identifier.
+
+Signed-off-by: Andra Paraschiv <andraprs@amazon.com>
+---
+ drivers/virt/nitro_enclaves/ne_pci_dev.h | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/virt/nitro_enclaves/ne_pci_dev.h b/drivers/virt/nitro_enclaves/ne_pci_dev.h
+index 8bfbc6607818..6e9f28971a4e 100644
+--- a/drivers/virt/nitro_enclaves/ne_pci_dev.h
++++ b/drivers/virt/nitro_enclaves/ne_pci_dev.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 */
+ /*
+- * Copyright 2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
++ * Copyright 2020-2021 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  */
+ 
+ #ifndef _NE_PCI_DEV_H_
+@@ -84,9 +84,13 @@
+  */
+ 
+ /**
+- * NE_SEND_DATA_SIZE / NE_RECV_DATA_SIZE - 240 bytes for send / recv buffer.
++ * NE_SEND_DATA_SIZE - Size of the send buffer, in bytes.
+  */
+ #define NE_SEND_DATA_SIZE	(240)
++
++/**
++ * NE_RECV_DATA_SIZE - Size of the receive buffer, in bytes.
++ */
+ #define NE_RECV_DATA_SIZE	(240)
+ 
+ /**
+-- 
+2.32.0
+

@@ -1,0 +1,2796 @@
+From 023cc2536718978ce1d0d3165723da09c4547911 Mon Sep 17 00:00:00 2001
+From: Ethan Chen <yishache@amazon.com>
+Date: Tue, 26 Oct 2021 21:53:17 +0000
+Subject: efa: update to 1.14.1
+
+Signed-off-by: Ethan Chen <yishache@amazon.com>
+---
+ drivers/amazon/net/efa/config.h              | 241 ++-------
+ drivers/amazon/net/efa/efa-abi.h             |  42 --
+ drivers/amazon/net/efa/efa.h                 |  88 +---
+ drivers/amazon/net/efa/efa_admin_cmds_defs.h |  25 +-
+ drivers/amazon/net/efa/efa_admin_defs.h      |   4 +-
+ drivers/amazon/net/efa/efa_com.c             |  33 +-
+ drivers/amazon/net/efa/efa_com_cmd.c         |   2 -
+ drivers/amazon/net/efa/efa_com_cmd.h         |   4 -
+ drivers/amazon/net/efa/efa_gdr.c             | 110 ++--
+ drivers/amazon/net/efa/efa_gdr.h             |  20 +-
+ drivers/amazon/net/efa/efa_main.c            | 247 +--------
+ drivers/amazon/net/efa/efa_sysfs.c           |  10 +-
+ drivers/amazon/net/efa/efa_verbs.c           | 505 ++++---------------
+ drivers/amazon/net/efa/kcompat.h             |  16 +-
+ drivers/amazon/net/efa/nv-p2p.h              | 439 ++++++++++++++++
+ 15 files changed, 736 insertions(+), 1050 deletions(-)
+ create mode 100644 drivers/amazon/net/efa/nv-p2p.h
+
+diff --git a/drivers/amazon/net/efa/config.h b/drivers/amazon/net/efa/config.h
+index 127e3a9f218e..53a5eb2eeaec 100644
+--- a/drivers/amazon/net/efa/config.h
++++ b/drivers/amazon/net/efa/config.h
+@@ -1,218 +1,45 @@
+-/* src/config.h.  Generated from config.h.in by configure.  */
+-/* src/config.h.in.  Generated from configure.ac by autoheader.  */
+-
+-/* have ah core allocation */
++#define HAVE_UMEM_SCATTERLIST_IF 1
++#define HAVE_CREATE_CQ_ATTR 1
++#define HAVE_CREATE_AH_RDMA_ATTR 1
++#define HAVE_DEV_PARENT 1
++#define HAVE_POST_CONST_WR 1
++#define HAVE_MAX_SEND_RCV_SGE 1
++#define HAVE_IB_MODIFY_QP_IS_OK_FOUR_PARAMS 1
++#define HAVE_IB_DEV_OPS 1
++#define HAVE_SG_DMA_PAGE_ITER 1
++#define HAVE_PD_CORE_ALLOCATION 1
++#define HAVE_UCONTEXT_CORE_ALLOCATION 1
++#define HAVE_NO_KVERBS_DRIVERS 1
++#define HAVE_UDATA_TO_DRV_CONTEXT 1
++#define HAVE_SAFE_IB_ALLOC_DEVICE 1
+ #define HAVE_AH_CORE_ALLOCATION 1
+-
+-/* destroy_ah has return code again */
+-#define HAVE_AH_CORE_ALLOCATION_DESTROY_RC 1
+-
+-/* have device ops alloc_pd without ucontext */
+ #define HAVE_ALLOC_PD_NO_UCONTEXT 1
+-
+-/* atomic64_fetch_inc exists */
+-#define HAVE_ATOMIC64_FETCH_INC 1
+-
+-/* have bitfield.h */
+-#define HAVE_BITFIELD_H 1
+-
+-/* have core mmap xarray */
+-#define HAVE_CORE_MMAP_XA 1
+-
+-/* have cq core allocation */
+-#define HAVE_CQ_CORE_ALLOCATION 1
+-
+-/* rdma_ah_init_attr exists */
+-#define HAVE_CREATE_AH_INIT_ATTR 1
+-
+-/* create_ah doesn't have udata */
+-/* #undef HAVE_CREATE_AH_NO_UDATA */
+-
+-/* create_ah has rdma_attr */
+-#define HAVE_CREATE_AH_RDMA_ATTR 1
+-
+-/* create_ah has udata */
+-/* #undef HAVE_CREATE_AH_UDATA */
+-
+-/* create_cq has attr param */
+-#define HAVE_CREATE_CQ_ATTR 1
+-
+-/* have device ops create_cq without ucontext */
+-/* #undef HAVE_CREATE_CQ_NO_UCONTEXT */
+-
+-/* create/destroy_ah has flags */
+-/* #undef HAVE_CREATE_DESTROY_AH_FLAGS */
+-
+-/* have device ops dealloc pd has udata */
+-/* #undef HAVE_DEALLOC_PD_UDATA */
+-
+-/* dealloc_pd has udata and return code */
+-#define HAVE_DEALLOC_PD_UDATA_RC 1
+-
+-/* have device ops dereg mr udata */
+ #define HAVE_DEREG_MR_UDATA 1
+-
+-/* have device ops destroy cq udata */
+ #define HAVE_DESTROY_CQ_UDATA 1
+-
+-/* have device ops destroy qp udata */
+ #define HAVE_DESTROY_QP_UDATA 1
+-
+-/* dev has parent field */
+-#define HAVE_DEV_PARENT 1
+-
+-/* driver_id field exists */
+-/* #undef HAVE_DRIVER_ID */
+-
+-/* efa gdr enabled */
+-/* #undef HAVE_EFA_GDR */
+-
+-/* get_port_immutable exists */
+-#define HAVE_GET_PORT_IMMUTABLE 1
+-
+-/* have hw_stats */
+-#define HAVE_HW_STATS 1
+-
+-/* have ibdev print */
+-#define HAVE_IBDEV_PRINT 1
+-
+-/* have ibdev ratelimited print */
+-#define HAVE_IBDEV_PRINT_RATELIMITED 1
+-
+-/* IB_ACCESS_OPTIONAL exists */
+-#define HAVE_IB_ACCESS_OPTIONAL 1
+-
+-/* ib_device_ops has common fields */
++#define HAVE_UPSTREAM_EFA 1
++#define HAVE_IB_UMEM_FIND_SINGLE_PG_SIZE 1
+ #define HAVE_IB_DEVICE_OPS_COMMON 1
+-
+-/* struct ib_device_ops exists */
+-#define HAVE_IB_DEV_OPS 1
+-
+-/* destroy_cq has return code again */
+-#define HAVE_IB_INT_DESTROY_CQ 1
+-
+-/* have ib_is_udata_cleared */
+-#define HAVE_IB_IS_UDATA_CLEARED 1
+-
+-/* ib_modify_qp_is_ok has four params */
+-#define HAVE_IB_MODIFY_QP_IS_OK_FOUR_PARAMS 1
+-
+-/* ib_mr has length field */
+-#define HAVE_IB_MR_LENGTH 1
+-
+-/* ib_mtu_int_to_enum exists */
+-#define HAVE_IB_MTU_INT_TO_ENUM 1
+-
+-/* have ib port phys state link up */
++#define HAVE_CQ_CORE_ALLOCATION 1
+ #define HAVE_IB_PORT_PHYS_STATE_LINK_UP 1
+-
+-/* have driver qpt */
+-#define HAVE_IB_QPT_DRIVER 1
+-
+-/* query_device has udata */
+-#define HAVE_IB_QUERY_DEVICE_UDATA 1
+-
+-/* ib_register_device has dma_device param */
+-#define HAVE_IB_REGISTER_DEVICE_DMA_DEVICE_PARAM 1
+-
+-/* ib_register_device has name param */
+-/* #undef HAVE_IB_REGISTER_DEVICE_NAME_PARAM */
+-
+-/* ib_register_device has two params */
+-/* #undef HAVE_IB_REGISTER_DEVICE_TWO_PARAMS */
+-
+-/* ib_umem_find_single_pg_size exists */
+-#define HAVE_IB_UMEM_FIND_SINGLE_PG_SIZE 1
+-
+-/* have ib_umem_get device param */
+-#define HAVE_IB_UMEM_GET_DEVICE_PARAM 1
+-
+-/* ib_umem_get has no dmasync parameter */
+-#define HAVE_IB_UMEM_GET_NO_DMASYNC 1
+-
+-/* ib_umem_get has udata */
+-/* #undef HAVE_IB_UMEM_GET_UDATA */
+-
+-/* ib_umem_num_dma_blocks exists */
+-#define HAVE_IB_UMEM_NUM_DMA_BLOCKS 1
+-
+-/* have void destroy cq */
+-/* #undef HAVE_IB_VOID_DESTROY_CQ */
+-
+-/* have kvzalloc */
+ #define HAVE_KVZALLOC 1
+-
+-/* ib_device_attr has max_send_recv_sge */
+-#define HAVE_MAX_SEND_RCV_SGE 1
+-
+-/* have no kverbs drivers */
+-#define HAVE_NO_KVERBS_DRIVERS 1
+-
+-/* have pci_irq_vector */
+-#define HAVE_PCI_IRQ_VECTOR 1
+-
+-/* have amazon pci id */
++#define HAVE_IBDEV_PRINT_RATELIMITED 1
++#define HAVE_IBDEV_PRINT 1
++#define HAVE_IB_QPT_DRIVER 1
++#define HAVE_IB_IS_UDATA_CLEARED 1
++#define HAVE_IB_MR_LENGTH 1
+ #define HAVE_PCI_VENDOR_ID_AMAZON 1
+-
+-/* have pd core allocation */
+-#define HAVE_PD_CORE_ALLOCATION 1
+-
+-/* have const wr in post verbs */
+-#define HAVE_POST_CONST_WR 1
+-
+-/* have unspecified node type */
++#define HAVE_IB_UMEM_GET_NO_DMASYNC 1
++#define HAVE_CORE_MMAP_XA 1
+ #define HAVE_RDMA_NODE_UNSPECIFIED 1
+-
+-/* rdma_umem_for_each_dma_block exists */
++#define HAVE_BITFIELD_H 1
++#define HAVE_IB_UMEM_GET_DEVICE_PARAM 1
++#define HAVE_IB_ACCESS_OPTIONAL 1
++#define HAVE_CREATE_AH_INIT_ATTR 1
++#define HAVE_ATOMIC64_FETCH_INC 1
++#define HAVE_DEALLOC_PD_UDATA_RC 1
++#define HAVE_AH_CORE_ALLOCATION_DESTROY_RC 1
++#define HAVE_IB_INT_DESTROY_CQ 1
+ #define HAVE_RDMA_UMEM_FOR_EACH_DMA_BLOCK 1
+-
+-/* rdma_user_mmap_io exists */
+-/* #undef HAVE_RDMA_USER_MMAP_IO */
+-
+-/* safe ib_alloc_device exists */
+-#define HAVE_SAFE_IB_ALLOC_DEVICE 1
+-
+-/* for_each_sg_dma_page exists */
+-#define HAVE_SG_DMA_PAGE_ITER 1
+-
+-/* have ucontext core allocation */
+-#define HAVE_UCONTEXT_CORE_ALLOCATION 1
+-
+-/* rdma_udata_to_drv_context exists */
+-#define HAVE_UDATA_TO_DRV_CONTEXT 1
+-
+-/* ib umem scatterlist exists */
+-#define HAVE_UMEM_SCATTERLIST_IF 1
+-
+-/* have upstream efa */
+-#define HAVE_UPSTREAM_EFA 1
+-
+-/* have uverbs command header fix */
+-/* #undef HAVE_UVERBS_CMD_HDR_FIX */
+-
+-/* uverbs_cmd_mask is not needed */
+-/* #undef HAVE_UVERBS_CMD_MASK_NOT_NEEDED */
+-
+-/* Name of package */
+-#define PACKAGE "efa"
+-
+-/* Define to the address where bug reports for this package should be sent. */
+-#define PACKAGE_BUGREPORT ""
+-
+-/* Define to the full name of this package. */
+-#define PACKAGE_NAME "efa"
+-
+-/* Define to the full name and version of this package. */
+-#define PACKAGE_STRING "efa 1.11.1"
+-
+-/* Define to the one symbol short name of this package. */
+-#define PACKAGE_TARNAME "efa"
+-
+-/* Define to the home page for this package. */
+-#define PACKAGE_URL ""
+-
+-/* Define to the version of this package. */
+-#define PACKAGE_VERSION "1.11.1"
+-
+-/* Version number of package */
+-#define VERSION "1.11.1"
++#define HAVE_IB_UMEM_NUM_DMA_BLOCKS 1
++#define HAVE_IB_REGISTER_DEVICE_DMA_DEVICE_PARAM 1
+diff --git a/drivers/amazon/net/efa/efa-abi.h b/drivers/amazon/net/efa/efa-abi.h
+index fee906bc28bb..f89fbb5b1e8d 100644
+--- a/drivers/amazon/net/efa/efa-abi.h
++++ b/drivers/amazon/net/efa/efa-abi.h
+@@ -118,46 +118,4 @@ struct efa_ibv_ex_query_device_resp {
+ 	__u32 device_caps;
+ };
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-/******************************************************************************/
+-/*                            EFA CUSTOM COMMANDS                             */
+-/******************************************************************************/
+-#include <rdma/ib_user_verbs.h>
+-
+-enum efa_everbs_commands {
+-	EFA_EVERBS_CMD_GET_AH = 1,
+-	EFA_EVERBS_CMD_GET_EX_DEV_ATTRS,
+-	EFA_EVERBS_CMD_MAX,
+-};
+-
+-struct efa_everbs_get_ah {
+-	__u32 comp_mask;
+-	__u16 pdn;
+-	__u8 reserved_30[2];
+-	__aligned_u64 response;
+-	__aligned_u64 user_handle;
+-	__u8 gid[16];
+-};
+-
+-struct efa_everbs_get_ah_resp {
+-	__u32 comp_mask;
+-	__u16 efa_address_handle;
+-	__u8 reserved_30[2];
+-};
+-
+-struct efa_everbs_get_ex_dev_attrs {
+-	__u32 comp_mask;
+-	__u8 reserved_20[4];
+-	__aligned_u64 response;
+-};
+-
+-struct efa_everbs_get_ex_dev_attrs_resp {
+-	__u32 comp_mask;
+-	__u32 max_sq_wr;
+-	__u32 max_rq_wr;
+-	__u16 max_sq_sge;
+-	__u16 max_rq_sge;
+-};
+-#endif /* HAVE_CUSTOM_COMMANDS */
+-
+ #endif /* EFA_ABI_USER_H */
+diff --git a/drivers/amazon/net/efa/efa.h b/drivers/amazon/net/efa/efa.h
+index ec19c69a8b81..019cbd632710 100644
+--- a/drivers/amazon/net/efa/efa.h
++++ b/drivers/amazon/net/efa/efa.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #ifndef _EFA_H_
+@@ -8,10 +8,6 @@
+ 
+ #include "kcompat.h"
+ #include <linux/bitops.h>
+-#ifdef HAVE_CUSTOM_COMMANDS
+-#include <linux/cdev.h>
+-#include <linux/fs.h>
+-#endif
+ #include <linux/interrupt.h>
+ #include <linux/pci.h>
+ #include <linux/version.h>
+@@ -33,8 +29,7 @@
+ struct efa_irq {
+ 	irq_handler_t handler;
+ 	void *data;
+-	int cpu;
+-	u32 vector;
++	u32 irqn;
+ 	cpumask_t affinity_hint_mask;
+ 	char name[EFA_IRQNAME_SIZE];
+ };
+@@ -64,23 +59,9 @@ struct efa_dev {
+ 	u64 db_bar_addr;
+ 	u64 db_bar_len;
+ 
+-#ifndef HAVE_PCI_IRQ_VECTOR
+-	struct msix_entry admin_msix_entry;
+-#else
+ 	int admin_msix_vector_idx;
+-#endif
+ 	struct efa_irq admin_irq;
+ 
+-#ifndef HAVE_CREATE_AH_UDATA
+-	struct list_head efa_ah_list;
+-	/* Protects efa_ah_list */
+-	struct mutex ah_list_lock;
+-#endif
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	struct device *everbs_dev;
+-	struct cdev cdev;
+-#endif
+-
+ 	struct efa_stats stats;
+ };
+ 
+@@ -147,23 +128,17 @@ struct efa_ah {
+ 	u8 id[EFA_GID_SIZE];
+ };
+ 
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ int efa_query_device(struct ib_device *ibdev,
+ 		     struct ib_device_attr *props,
+ 		     struct ib_udata *udata);
+-#else
+-#warning deprecated api
+-int efa_query_device(struct ib_device *ibdev,
+-		     struct ib_device_attr *props);
+-#endif
+-int efa_query_port(struct ib_device *ibdev, u8 port,
++int efa_query_port(struct ib_device *ibdev, port_t port,
+ 		   struct ib_port_attr *props);
+ int efa_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
+ 		 int qp_attr_mask,
+ 		 struct ib_qp_init_attr *qp_init_attr);
+-int efa_query_gid(struct ib_device *ibdev, u8 port, int index,
++int efa_query_gid(struct ib_device *ibdev, port_t port, int index,
+ 		  union ib_gid *gid);
+-int efa_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
++int efa_query_pkey(struct ib_device *ibdev, port_t port, u16 index,
+ 		   u16 *pkey);
+ #ifdef HAVE_ALLOC_PD_NO_UCONTEXT
+ int efa_alloc_pd(struct ib_pd *ibpd, struct ib_udata *udata);
+@@ -201,13 +176,8 @@ int efa_destroy_cq(struct ib_cq *ibcq, struct ib_udata *udata);
+ #else
+ int efa_destroy_cq(struct ib_cq *ibcq);
+ #endif
+-#ifdef HAVE_CREATE_CQ_ATTR
+ int efa_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+ 		  struct ib_udata *udata);
+-#else
+-#warning deprecated api
+-int efa_create_cq(struct ib_cq *ibcq, int entries, struct ib_udata *udata);
+-#endif
+ #ifndef HAVE_CQ_CORE_ALLOCATION
+ #ifdef HAVE_CREATE_CQ_NO_UCONTEXT
+ struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev,
+@@ -218,11 +188,6 @@ struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev,
+ 			     const struct ib_cq_init_attr *attr,
+ 			     struct ib_ucontext *ibucontext,
+ 			     struct ib_udata *udata);
+-#else
+-struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev, int entries,
+-			     int vector,
+-			     struct ib_ucontext *ibucontext,
+-			     struct ib_udata *udata);
+ #endif
+ #endif
+ struct ib_mr *efa_reg_mr(struct ib_pd *ibpd, u64 start, u64 length,
+@@ -233,10 +198,8 @@ int efa_dereg_mr(struct ib_mr *ibmr, struct ib_udata *udata);
+ #else
+ int efa_dereg_mr(struct ib_mr *ibmr);
+ #endif
+-#ifdef HAVE_GET_PORT_IMMUTABLE
+-int efa_get_port_immutable(struct ib_device *ibdev, u8 port_num,
++int efa_get_port_immutable(struct ib_device *ibdev, port_t port_num,
+ 			   struct ib_port_immutable *immutable);
+-#endif
+ int efa_alloc_ucontext(struct ib_ucontext *ibucontext, struct ib_udata *udata);
+ #ifdef HAVE_UCONTEXT_CORE_ALLOCATION
+ void efa_dealloc_ucontext(struct ib_ucontext *ibucontext);
+@@ -254,11 +217,7 @@ int efa_create_ah(struct ib_ah *ibah,
+ #ifdef HAVE_CREATE_AH_INIT_ATTR
+ 		  struct rdma_ah_init_attr *init_attr,
+ #else
+-#ifdef HAVE_CREATE_AH_RDMA_ATTR
+ 		  struct rdma_ah_attr *ah_attr,
+-#else
+-		  struct ib_ah_attr *ah_attr,
+-#endif
+ 		  u32 flags,
+ #endif
+ 		  struct ib_udata *udata);
+@@ -272,13 +231,6 @@ struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+ struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+ 			     struct rdma_ah_attr *ah_attr,
+ 			     struct ib_udata *udata);
+-#elif defined(HAVE_CREATE_AH_UDATA)
+-struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+-			     struct ib_ah_attr *ah_attr,
+-			     struct ib_udata *udata);
+-#else
+-struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+-			     struct ib_ah_attr *ah_attr);
+ #endif
+ #endif
+ #ifdef HAVE_AH_CORE_ALLOCATION_DESTROY_RC
+@@ -318,26 +270,14 @@ struct ib_mr *efa_get_dma_mr(struct ib_pd *ibpd, int acc);
+ int efa_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
+ 		  int qp_attr_mask, struct ib_udata *udata);
+ enum rdma_link_layer efa_port_link_layer(struct ib_device *ibdev,
+-					 u8 port_num);
+-#ifdef HAVE_HW_STATS
+-struct rdma_hw_stats *efa_alloc_hw_stats(struct ib_device *ibdev, u8 port_num);
+-int efa_get_hw_stats(struct ib_device *ibdev, struct rdma_hw_stats *stats,
+-		     u8 port_num, int index);
+-#endif
+-
+-#ifdef HAVE_CUSTOM_COMMANDS
+-#ifndef HAVE_CREATE_AH_UDATA
+-ssize_t efa_everbs_cmd_get_ah(struct efa_dev *dev,
+-			      const char __user *buf,
+-			      int in_len,
+-			      int out_len);
+-#endif
+-#ifndef HAVE_IB_QUERY_DEVICE_UDATA
+-ssize_t efa_everbs_cmd_get_ex_dev_attrs(struct efa_dev *dev,
+-					const char __user *buf,
+-					int in_len,
+-					int out_len);
+-#endif
++					 port_t port_num);
++#ifdef HAVE_SPLIT_STATS_ALLOC
++struct rdma_hw_stats *efa_alloc_hw_port_stats(struct ib_device *ibdev, port_t port_num);
++struct rdma_hw_stats *efa_alloc_hw_device_stats(struct ib_device *ibdev);
++#else
++struct rdma_hw_stats *efa_alloc_hw_stats(struct ib_device *ibdev, port_t port_num);
+ #endif
++int efa_get_hw_stats(struct ib_device *ibdev, struct rdma_hw_stats *stats,
++		     port_t port_num, int index);
+ 
+ #endif /* _EFA_H_ */
+diff --git a/drivers/amazon/net/efa/efa_admin_cmds_defs.h b/drivers/amazon/net/efa/efa_admin_cmds_defs.h
+index b199e4ac6cf9..fa38b34eddb8 100644
+--- a/drivers/amazon/net/efa/efa_admin_cmds_defs.h
++++ b/drivers/amazon/net/efa/efa_admin_cmds_defs.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #ifndef _EFA_ADMIN_CMDS_H_
+@@ -161,8 +161,8 @@ struct efa_admin_create_qp_resp {
+ 	u32 qp_handle;
+ 
+ 	/*
+-	 * QP number in the given EFA virtual device. Least-significant bits
+-	 *    (as needed according to max_qp) carry unique QP ID
++	 * QP number in the given EFA virtual device. Least-significant bits (as
++	 * needed according to max_qp) carry unique QP ID
+ 	 */
+ 	u16 qp_num;
+ 
+@@ -465,7 +465,7 @@ struct efa_admin_create_cq_cmd {
+ 
+ 	/*
+ 	 * number of sub cqs - must be equal to sub_cqs_per_cq of queue
+-	 *    attributes.
++	 * attributes.
+ 	 */
+ 	u16 num_sub_cqs;
+ 
+@@ -563,12 +563,8 @@ struct efa_admin_acq_get_stats_resp {
+ };
+ 
+ struct efa_admin_get_set_feature_common_desc {
+-	/*
+-	 * 1:0 : select - 0x1 - current value; 0x3 - default
+-	 *    value
+-	 * 7:3 : reserved3 - MBZ
+-	 */
+-	u8 flags;
++	/* MBZ */
++	u8 reserved0;
+ 
+ 	/* as appears in efa_admin_aq_feature_id */
+ 	u8 feature_id;
+@@ -823,12 +819,6 @@ enum efa_admin_aenq_group {
+ 	EFA_ADMIN_AENQ_GROUPS_NUM                   = 5,
+ };
+ 
+-enum efa_admin_aenq_notification_syndrom {
+-	EFA_ADMIN_SUSPEND                           = 0,
+-	EFA_ADMIN_RESUME                            = 1,
+-	EFA_ADMIN_UPDATE_HINTS                      = 2,
+-};
+-
+ struct efa_admin_mmio_req_read_less_resp {
+ 	u16 req_id;
+ 
+@@ -909,9 +899,6 @@ struct efa_admin_host_info {
+ #define EFA_ADMIN_CREATE_CQ_CMD_VIRT_MASK                   BIT(6)
+ #define EFA_ADMIN_CREATE_CQ_CMD_CQ_ENTRY_SIZE_WORDS_MASK    GENMASK(4, 0)
+ 
+-/* get_set_feature_common_desc */
+-#define EFA_ADMIN_GET_SET_FEATURE_COMMON_DESC_SELECT_MASK   GENMASK(1, 0)
+-
+ /* feature_device_attr_desc */
+ #define EFA_ADMIN_FEATURE_DEVICE_ATTR_DESC_RDMA_READ_MASK   BIT(0)
+ #define EFA_ADMIN_FEATURE_DEVICE_ATTR_DESC_RNR_RETRY_MASK   BIT(1)
+diff --git a/drivers/amazon/net/efa/efa_admin_defs.h b/drivers/amazon/net/efa/efa_admin_defs.h
+index 29d53ed63b3e..78ff9389ae25 100644
+--- a/drivers/amazon/net/efa/efa_admin_defs.h
++++ b/drivers/amazon/net/efa/efa_admin_defs.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #ifndef _EFA_ADMIN_H_
+@@ -82,7 +82,7 @@ struct efa_admin_acq_common_desc {
+ 
+ 	/*
+ 	 * indicates to the driver which AQ entry has been consumed by the
+-	 *    device and could be reused
++	 * device and could be reused
+ 	 */
+ 	u16 sq_head_indx;
+ };
+diff --git a/drivers/amazon/net/efa/efa_com.c b/drivers/amazon/net/efa/efa_com.c
+index e8a0a0c3a90d..22793b395959 100644
+--- a/drivers/amazon/net/efa/efa_com.c
++++ b/drivers/amazon/net/efa/efa_com.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #include "efa_com.h"
+@@ -20,9 +20,6 @@
+ #define EFA_CTRL_MINOR          0
+ #define EFA_CTRL_SUB_MINOR      1
+ 
+-#define EFA_DMA_ADDR_TO_UINT32_LOW(x)   ((u32)((u64)(x)))
+-#define EFA_DMA_ADDR_TO_UINT32_HIGH(x)  ((u32)(((u64)(x)) >> 32))
+-
+ enum efa_cmd_status {
+ 	EFA_CMD_SUBMITTED,
+ 	EFA_CMD_COMPLETED,
+@@ -33,8 +30,6 @@ struct efa_comp_ctx {
+ 	struct efa_admin_acq_entry *user_cqe;
+ 	u32 comp_size;
+ 	enum efa_cmd_status status;
+-	/* status from the device */
+-	u8 comp_status;
+ 	u8 cmd_opcode;
+ 	u8 occupied;
+ };
+@@ -140,8 +135,8 @@ static int efa_com_admin_init_sq(struct efa_com_dev *edev)
+ 
+ 	sq->db_addr = (u32 __iomem *)(edev->reg_bar + EFA_REGS_AQ_PROD_DB_OFF);
+ 
+-	addr_high = EFA_DMA_ADDR_TO_UINT32_HIGH(sq->dma_addr);
+-	addr_low = EFA_DMA_ADDR_TO_UINT32_LOW(sq->dma_addr);
++	addr_high = upper_32_bits(sq->dma_addr);
++	addr_low = lower_32_bits(sq->dma_addr);
+ 
+ 	writel(addr_low, edev->reg_bar + EFA_REGS_AQ_BASE_LO_OFF);
+ 	writel(addr_high, edev->reg_bar + EFA_REGS_AQ_BASE_HI_OFF);
+@@ -174,8 +169,8 @@ static int efa_com_admin_init_cq(struct efa_com_dev *edev)
+ 	cq->cc = 0;
+ 	cq->phase = 1;
+ 
+-	addr_high = EFA_DMA_ADDR_TO_UINT32_HIGH(cq->dma_addr);
+-	addr_low = EFA_DMA_ADDR_TO_UINT32_LOW(cq->dma_addr);
++	addr_high = upper_32_bits(cq->dma_addr);
++	addr_low = lower_32_bits(cq->dma_addr);
+ 
+ 	writel(addr_low, edev->reg_bar + EFA_REGS_ACQ_BASE_LO_OFF);
+ 	writel(addr_high, edev->reg_bar + EFA_REGS_ACQ_BASE_HI_OFF);
+@@ -215,8 +210,8 @@ static int efa_com_admin_init_aenq(struct efa_com_dev *edev,
+ 	aenq->cc = 0;
+ 	aenq->phase = 1;
+ 
+-	addr_low = EFA_DMA_ADDR_TO_UINT32_LOW(aenq->dma_addr);
+-	addr_high = EFA_DMA_ADDR_TO_UINT32_HIGH(aenq->dma_addr);
++	addr_low = lower_32_bits(aenq->dma_addr);
++	addr_high = upper_32_bits(aenq->dma_addr);
+ 
+ 	writel(addr_low, edev->reg_bar + EFA_REGS_AENQ_BASE_LO_OFF);
+ 	writel(addr_high, edev->reg_bar + EFA_REGS_AENQ_BASE_HI_OFF);
+@@ -422,9 +417,7 @@ static void efa_com_handle_single_admin_completion(struct efa_com_admin_queue *a
+ 	}
+ 
+ 	comp_ctx->status = EFA_CMD_COMPLETED;
+-	comp_ctx->comp_status = cqe->acq_common_descriptor.status;
+-	if (comp_ctx->user_cqe)
+-		memcpy(comp_ctx->user_cqe, cqe, comp_ctx->comp_size);
++	memcpy(comp_ctx->user_cqe, cqe, comp_ctx->comp_size);
+ 
+ 	if (!test_bit(EFA_AQ_STATE_POLLING_BIT, &aq->state))
+ 		complete(&comp_ctx->wait_event);
+@@ -522,7 +515,7 @@ static int efa_com_wait_and_process_admin_cq_polling(struct efa_comp_ctx *comp_c
+ 		msleep(aq->poll_interval);
+ 	}
+ 
+-	err = efa_com_comp_status_to_errno(comp_ctx->comp_status);
++	err = efa_com_comp_status_to_errno(comp_ctx->user_cqe->acq_common_descriptor.status);
+ out:
+ 	efa_com_put_comp_ctx(aq, comp_ctx);
+ 	return err;
+@@ -570,7 +563,7 @@ static int efa_com_wait_and_process_admin_cq_interrupts(struct efa_comp_ctx *com
+ 		goto out;
+ 	}
+ 
+-	err = efa_com_comp_status_to_errno(comp_ctx->comp_status);
++	err = efa_com_comp_status_to_errno(comp_ctx->user_cqe->acq_common_descriptor.status);
+ out:
+ 	efa_com_put_comp_ctx(aq, comp_ctx);
+ 	return err;
+@@ -642,8 +635,8 @@ int efa_com_cmd_exec(struct efa_com_admin_queue *aq,
+ 			aq->efa_dev,
+ 			"Failed to process command %s (opcode %u) comp_status %d err %d\n",
+ 			efa_com_cmd_str(cmd->aq_common_descriptor.opcode),
+-			cmd->aq_common_descriptor.opcode, comp_ctx->comp_status,
+-			err);
++			cmd->aq_common_descriptor.opcode,
++			comp_ctx->user_cqe->acq_common_descriptor.status, err);
+ 		atomic64_inc(&aq->stats.cmd_err);
+ 	}
+ 
+@@ -796,7 +789,7 @@ int efa_com_admin_init(struct efa_com_dev *edev,
+  * This method goes over the admin completion queue and wakes up
+  * all the pending threads that wait on the commands wait event.
+  *
+- * @note: Should be called after MSI-X interrupt.
++ * Note: Should be called after MSI-X interrupt.
+  */
+ void efa_com_admin_q_comp_intr_handler(struct efa_com_dev *edev)
+ {
+diff --git a/drivers/amazon/net/efa/efa_com_cmd.c b/drivers/amazon/net/efa/efa_com_cmd.c
+index d2727cddf970..315ab45612ad 100644
+--- a/drivers/amazon/net/efa/efa_com_cmd.c
++++ b/drivers/amazon/net/efa/efa_com_cmd.c
+@@ -726,7 +726,6 @@ int efa_com_dealloc_uar(struct efa_com_dev *edev,
+ 	return 0;
+ }
+ 
+-#ifdef HAVE_HW_STATS
+ int efa_com_get_stats(struct efa_com_dev *edev,
+ 		      struct efa_com_get_stats_params *params,
+ 		      union efa_com_get_stats_result *result)
+@@ -778,4 +777,3 @@ int efa_com_get_stats(struct efa_com_dev *edev,
+ 
+ 	return 0;
+ }
+-#endif
+diff --git a/drivers/amazon/net/efa/efa_com_cmd.h b/drivers/amazon/net/efa/efa_com_cmd.h
+index e572146af876..eea4ebfbe6ec 100644
+--- a/drivers/amazon/net/efa/efa_com_cmd.h
++++ b/drivers/amazon/net/efa/efa_com_cmd.h
+@@ -224,7 +224,6 @@ struct efa_com_dealloc_uar_params {
+ 	u16 uarn;
+ };
+ 
+-#ifdef HAVE_HW_STATS
+ struct efa_com_get_stats_params {
+ 	/* see enum efa_admin_get_stats_type */
+ 	u8 type;
+@@ -260,7 +259,6 @@ union efa_com_get_stats_result {
+ 	struct efa_com_messages_stats messages_stats;
+ 	struct efa_com_rdma_read_stats rdma_read_stats;
+ };
+-#endif
+ 
+ void efa_com_set_dma_addr(dma_addr_t addr, u32 *addr_high, u32 *addr_low);
+ int efa_com_create_qp(struct efa_com_dev *edev,
+@@ -310,10 +308,8 @@ int efa_com_alloc_uar(struct efa_com_dev *edev,
+ 		      struct efa_com_alloc_uar_result *result);
+ int efa_com_dealloc_uar(struct efa_com_dev *edev,
+ 			struct efa_com_dealloc_uar_params *params);
+-#ifdef HAVE_HW_STATS
+ int efa_com_get_stats(struct efa_com_dev *edev,
+ 		      struct efa_com_get_stats_params *params,
+ 		      union efa_com_get_stats_result *result);
+-#endif
+ 
+ #endif /* _EFA_COM_CMD_H_ */
+diff --git a/drivers/amazon/net/efa/efa_gdr.c b/drivers/amazon/net/efa/efa_gdr.c
+index 5ec34afb6571..2bcd4bec6670 100644
+--- a/drivers/amazon/net/efa/efa_gdr.c
++++ b/drivers/amazon/net/efa/efa_gdr.c
+@@ -1,8 +1,10 @@
+ // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
+ /*
+- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2019-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
++#include <linux/module.h>
++
+ #include "efa_gdr.h"
+ 
+ #define GPU_PAGE_SHIFT 16
+@@ -50,6 +52,54 @@ static struct efa_nvmem *ticket_to_nvmem(u64 ticket)
+ 	return NULL;
+ }
+ 
++int nvmem_get_fp(struct efa_nvmem *nvmem)
++{
++	nvmem->ops.get_pages = symbol_get(nvidia_p2p_get_pages);
++	if (!nvmem->ops.get_pages)
++		goto err_out;
++
++	nvmem->ops.put_pages = symbol_get(nvidia_p2p_put_pages);
++	if (!nvmem->ops.put_pages)
++		goto err_put_get_pages;
++
++	nvmem->ops.dma_map_pages = symbol_get(nvidia_p2p_dma_map_pages);
++	if (!nvmem->ops.dma_map_pages)
++		goto err_put_put_pages;
++
++	nvmem->ops.dma_unmap_pages = symbol_get(nvidia_p2p_dma_unmap_pages);
++	if (!nvmem->ops.dma_unmap_pages)
++		goto err_put_dma_map_pages;
++
++	return 0;
++
++err_put_dma_map_pages:
++	symbol_put(nvidia_p2p_dma_map_pages);
++err_put_put_pages:
++	symbol_put(nvidia_p2p_put_pages);
++err_put_get_pages:
++	symbol_put(nvidia_p2p_get_pages);
++err_out:
++	return -EINVAL;
++}
++
++void nvmem_put_fp(void)
++{
++	symbol_put(nvidia_p2p_dma_unmap_pages);
++	symbol_put(nvidia_p2p_dma_map_pages);
++	symbol_put(nvidia_p2p_put_pages);
++	symbol_put(nvidia_p2p_get_pages);
++}
++
++static void nvmem_release(struct efa_dev *dev, struct efa_nvmem *nvmem)
++{
++	if (nvmem->dma_mapping)
++		nvmem->ops.dma_unmap_pages(dev->pdev, nvmem->pgtbl,
++					   nvmem->dma_mapping);
++
++	if (nvmem->pgtbl)
++		nvmem->ops.put_pages(0, 0, nvmem->virt_start, nvmem->pgtbl);
++}
++
+ int nvmem_put(u64 ticket, bool in_cb)
+ {
+ 	struct efa_com_dereg_mr_params params = {};
+@@ -76,14 +126,16 @@ int nvmem_put(u64 ticket, bool in_cb)
+ 		nvmem->needs_dereg = false;
+ 	}
+ 
+-	nvmem_release(dev, nvmem, in_cb);
+-
+-	/* Dereg is the last nvmem consumer, delete the ticket */
+-	if (!in_cb) {
+-		list_del(&nvmem->list);
+-		kfree(nvmem);
++	if (in_cb) {
++		mutex_unlock(&nvmem_list_lock);
++		return 0;
+ 	}
++
++	list_del(&nvmem->list);
+ 	mutex_unlock(&nvmem_list_lock);
++	nvmem_release(dev, nvmem);
++	nvmem_put_fp();
++	kfree(nvmem);
+ 
+ 	return 0;
+ }
+@@ -99,7 +151,7 @@ static int nvmem_get_pages(struct efa_dev *dev, struct efa_nvmem *nvmem,
+ {
+ 	int err;
+ 
+-	err = nvidia_p2p_get_pages(0, 0, addr, size, &nvmem->pgtbl,
++	err = nvmem->ops.get_pages(0, 0, addr, size, &nvmem->pgtbl,
+ 				   nvmem_free_cb, (void *)nvmem->ticket);
+ 	if (err) {
+ 		ibdev_dbg(&dev->ibdev, "nvidia_p2p_get_pages failed %d\n", err);
+@@ -109,7 +161,7 @@ static int nvmem_get_pages(struct efa_dev *dev, struct efa_nvmem *nvmem,
+ 	if (!NVIDIA_P2P_PAGE_TABLE_VERSION_COMPATIBLE(nvmem->pgtbl)) {
+ 		ibdev_dbg(&dev->ibdev, "Incompatible page table version %#08x\n",
+ 			  nvmem->pgtbl->version);
+-		nvidia_p2p_put_pages(0, 0, addr, nvmem->pgtbl);
++		nvmem->ops.put_pages(0, 0, addr, nvmem->pgtbl);
+ 		nvmem->pgtbl = NULL;
+ 		return -EINVAL;
+ 	}
+@@ -121,7 +173,7 @@ static int nvmem_dma_map(struct efa_dev *dev, struct efa_nvmem *nvmem)
+ {
+ 	int err;
+ 
+-	err = nvidia_p2p_dma_map_pages(dev->pdev, nvmem->pgtbl,
++	err = nvmem->ops.dma_map_pages(dev->pdev, nvmem->pgtbl,
+ 				       &nvmem->dma_mapping);
+ 	if (err) {
+ 		ibdev_dbg(&dev->ibdev, "nvidia_p2p_dma_map_pages failed %d\n",
+@@ -132,7 +184,7 @@ static int nvmem_dma_map(struct efa_dev *dev, struct efa_nvmem *nvmem)
+ 	if (!NVIDIA_P2P_DMA_MAPPING_VERSION_COMPATIBLE(nvmem->dma_mapping)) {
+ 		ibdev_dbg(&dev->ibdev, "Incompatible DMA mapping version %#08x\n",
+ 			  nvmem->dma_mapping->version);
+-		nvidia_p2p_dma_unmap_pages(dev->pdev, nvmem->pgtbl,
++		nvmem->ops.dma_unmap_pages(dev->pdev, nvmem->pgtbl,
+ 					   nvmem->dma_mapping);
+ 		nvmem->dma_mapping = NULL;
+ 		return -EINVAL;
+@@ -160,10 +212,15 @@ struct efa_nvmem *nvmem_get(struct efa_dev *dev, struct efa_mr *mr, u64 start,
+ 	pinsz = start + length - virt_start;
+ 	nvmem->virt_start = virt_start;
+ 
++	err = nvmem_get_fp(nvmem);
++	if (err)
++		/* Nvidia module is not loaded */
++		goto err_free;
++
+ 	err = nvmem_get_pages(dev, nvmem, virt_start, pinsz);
+ 	if (err) {
+ 		/* Most likely cpu pages */
+-		goto err_free;
++		goto err_put_fp;
+ 	}
+ 
+ 	err = nvmem_dma_map(dev, nvmem);
+@@ -181,9 +238,11 @@ struct efa_nvmem *nvmem_get(struct efa_dev *dev, struct efa_mr *mr, u64 start,
+ 	return nvmem;
+ 
+ err_unmap:
+-	nvidia_p2p_dma_unmap_pages(dev->pdev, nvmem->pgtbl, nvmem->dma_mapping);
++	nvmem->ops.dma_unmap_pages(dev->pdev, nvmem->pgtbl, nvmem->dma_mapping);
+ err_put:
+-	nvidia_p2p_put_pages(0, 0, start, nvmem->pgtbl);
++	nvmem->ops.put_pages(0, 0, start, nvmem->pgtbl);
++err_put_fp:
++	nvmem_put_fp();
+ err_free:
+ 	kfree(nvmem);
+ 	return NULL;
+@@ -200,26 +259,3 @@ int nvmem_to_page_list(struct efa_dev *dev, struct efa_nvmem *nvmem,
+ 
+ 	return 0;
+ }
+-
+-void nvmem_release(struct efa_dev *dev, struct efa_nvmem *nvmem, bool in_cb)
+-{
+-	if (in_cb) {
+-		if (nvmem->dma_mapping) {
+-			nvidia_p2p_free_dma_mapping(nvmem->dma_mapping);
+-			nvmem->dma_mapping = NULL;
+-		}
+-
+-		if (nvmem->pgtbl) {
+-			nvidia_p2p_free_page_table(nvmem->pgtbl);
+-			nvmem->pgtbl = NULL;
+-		}
+-	} else {
+-		if (nvmem->dma_mapping)
+-			nvidia_p2p_dma_unmap_pages(dev->pdev, nvmem->pgtbl,
+-						   nvmem->dma_mapping);
+-
+-		if (nvmem->pgtbl)
+-			nvidia_p2p_put_pages(0, 0, nvmem->virt_start,
+-					     nvmem->pgtbl);
+-	}
+-}
+diff --git a/drivers/amazon/net/efa/efa_gdr.h b/drivers/amazon/net/efa/efa_gdr.h
+index 497307c6305d..faa743c09c94 100644
+--- a/drivers/amazon/net/efa/efa_gdr.h
++++ b/drivers/amazon/net/efa/efa_gdr.h
+@@ -1,6 +1,6 @@
+ /* SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause */
+ /*
+- * Copyright 2019-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2019-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #ifndef _EFA_GDR_H_
+@@ -9,8 +9,23 @@
+ #include "efa.h"
+ #include "nv-p2p.h"
+ 
++struct efa_nvmem_ops {
++	int (*get_pages)(u64 p2p_token, u32 va_space, u64 virtual_address,
++			 u64 length, struct nvidia_p2p_page_table **page_table,
++			 void (*free_callback)(void *data), void *data);
++	int (*dma_map_pages)(struct pci_dev *peer,
++			     struct nvidia_p2p_page_table *page_table,
++			     struct nvidia_p2p_dma_mapping **dma_mapping);
++	int (*put_pages)(u64 p2p_token, u32 va_space, u64 virtual_address,
++			 struct nvidia_p2p_page_table *page_table);
++	int (*dma_unmap_pages)(struct pci_dev *peer,
++			       struct nvidia_p2p_page_table *page_table,
++			       struct nvidia_p2p_dma_mapping *dma_mapping);
++};
++
+ struct efa_nvmem {
+ 	struct efa_dev *dev;
++	struct efa_nvmem_ops ops;
+ 	struct nvidia_p2p_page_table *pgtbl;
+ 	struct nvidia_p2p_dma_mapping *dma_mapping;
+ 	u64 virt_start;
+@@ -21,11 +36,12 @@ struct efa_nvmem {
+ };
+ 
+ void nvmem_init(void);
++int nvmem_get_fp(struct efa_nvmem *nvmem);
++void nvmem_put_fp(void);
+ struct efa_nvmem *nvmem_get(struct efa_dev *dev, struct efa_mr *mr, u64 start,
+ 			    u64 length, unsigned int *pgsz);
+ int nvmem_to_page_list(struct efa_dev *dev, struct efa_nvmem *nvmem,
+ 		       u64 *page_list);
+ int nvmem_put(u64 ticket, bool in_cb);
+-void nvmem_release(struct efa_dev *dev, struct efa_nvmem *nvmem, bool in_cb);
+ 
+ #endif /* _EFA_GDR_H_ */
+diff --git a/drivers/amazon/net/efa/efa_main.c b/drivers/amazon/net/efa/efa_main.c
+index 2ca15287819d..1d1b94e800cd 100644
+--- a/drivers/amazon/net/efa/efa_main.c
++++ b/drivers/amazon/net/efa/efa_main.c
+@@ -30,7 +30,7 @@ static const struct pci_device_id efa_pci_tbl[] = {
+ };
+ 
+ #define DRV_MODULE_VER_MAJOR           1
+-#define DRV_MODULE_VER_MINOR           11
++#define DRV_MODULE_VER_MINOR           14
+ #define DRV_MODULE_VER_SUBMINOR        1
+ 
+ #ifndef DRV_MODULE_VERSION
+@@ -61,17 +61,6 @@ MODULE_INFO(gdr, "Y");
+ 	(BIT(EFA_ADMIN_FATAL_ERROR) | BIT(EFA_ADMIN_WARNING) | \
+ 	 BIT(EFA_ADMIN_NOTIFICATION) | BIT(EFA_ADMIN_KEEP_ALIVE))
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-#define EFA_EVERBS_DEVICE_NAME "efa_everbs"
+-#define EFA_EVERBS_MAX_DEVICES 64
+-
+-static struct class *efa_everbs_class;
+-static unsigned int efa_everbs_major;
+-
+-static int efa_everbs_dev_init(struct efa_dev *dev, int devnum);
+-static void efa_everbs_dev_destroy(struct efa_dev *dev);
+-#endif
+-
+ /* This handler will called for unknown event group or unimplemented handlers */
+ static void unimplemented_aenq_handler(void *data,
+ 				       struct efa_admin_aenq_entry *aenq_e)
+@@ -121,8 +110,7 @@ static int efa_request_mgmnt_irq(struct efa_dev *dev)
+ 	int err;
+ 
+ 	irq = &dev->admin_irq;
+-	err = request_irq(irq->vector, irq->handler, 0, irq->name,
+-			  irq->data);
++	err = request_irq(irq->irqn, irq->handler, 0, irq->name, irq->data);
+ 	if (err) {
+ 		dev_err(&dev->pdev->dev, "Failed to request admin irq (%d)\n",
+ 			err);
+@@ -130,8 +118,8 @@ static int efa_request_mgmnt_irq(struct efa_dev *dev)
+ 	}
+ 
+ 	dev_dbg(&dev->pdev->dev, "Set affinity hint of mgmnt irq to %*pbl (irq vector: %d)\n",
+-		nr_cpumask_bits, &irq->affinity_hint_mask, irq->vector);
+-	irq_set_affinity_hint(irq->vector, &irq->affinity_hint_mask);
++		nr_cpumask_bits, &irq->affinity_hint_mask, irq->irqn);
++	irq_set_affinity_hint(irq->irqn, &irq->affinity_hint_mask);
+ 
+ 	return 0;
+ }
+@@ -144,19 +132,13 @@ static void efa_setup_mgmnt_irq(struct efa_dev *dev)
+ 		 "efa-mgmnt@pci:%s", pci_name(dev->pdev));
+ 	dev->admin_irq.handler = efa_intr_msix_mgmnt;
+ 	dev->admin_irq.data = dev;
+-	dev->admin_irq.vector =
+-#ifndef HAVE_PCI_IRQ_VECTOR
+-		dev->admin_msix_entry.vector;
+-#else
++	dev->admin_irq.irqn =
+ 		pci_irq_vector(dev->pdev, dev->admin_msix_vector_idx);
+-#endif
+ 	cpu = cpumask_first(cpu_online_mask);
+-	dev->admin_irq.cpu = cpu;
+ 	cpumask_set_cpu(cpu,
+ 			&dev->admin_irq.affinity_hint_mask);
+-	dev_info(&dev->pdev->dev, "Setup irq:0x%p vector:%d name:%s\n",
+-		 &dev->admin_irq,
+-		 dev->admin_irq.vector,
++	dev_info(&dev->pdev->dev, "Setup irq:%d name:%s\n",
++		 dev->admin_irq.irqn,
+ 		 dev->admin_irq.name);
+ }
+ 
+@@ -165,8 +147,8 @@ static void efa_free_mgmnt_irq(struct efa_dev *dev)
+ 	struct efa_irq *irq;
+ 
+ 	irq = &dev->admin_irq;
+-	irq_set_affinity_hint(irq->vector, NULL);
+-	free_irq(irq->vector, irq->data);
++	irq_set_affinity_hint(irq->irqn, NULL);
++	free_irq(irq->irqn, irq->data);
+ }
+ 
+ static int efa_set_mgmnt_irq(struct efa_dev *dev)
+@@ -292,7 +274,12 @@ static const struct ib_device_ops efa_dev_ops = {
+ 	.uverbs_abi_ver = EFA_UVERBS_ABI_VERSION,
+ #endif
+ 
++#ifdef HAVE_SPLIT_STATS_ALLOC
++	.alloc_hw_port_stats = efa_alloc_hw_port_stats,
++	.alloc_hw_device_stats = efa_alloc_hw_device_stats,
++#else
+ 	.alloc_hw_stats = efa_alloc_hw_stats,
++#endif
+ #ifdef HAVE_PD_CORE_ALLOCATION
+ 	.alloc_pd = efa_alloc_pd,
+ #else
+@@ -368,16 +355,8 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ {
+ 	struct efa_com_get_hw_hints_result hw_hints;
+ 	struct pci_dev *pdev = dev->pdev;
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	int devnum;
+-#endif
+ 	int err;
+ 
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-	INIT_LIST_HEAD(&dev->efa_ah_list);
+-	mutex_init(&dev->ah_list_lock);
+-#endif
+-
+ 	efa_stats_init(dev);
+ 
+ 	err = efa_com_get_device_attr(&dev->edev, &dev->dev_attr);
+@@ -431,7 +410,7 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ 		(1ull << IB_USER_VERBS_CMD_DESTROY_AH);
+ #endif
+ 
+-#if defined(HAVE_IB_QUERY_DEVICE_UDATA) && !defined(HAVE_UVERBS_CMD_MASK_NOT_NEEDED)
++#ifndef HAVE_UVERBS_CMD_MASK_NOT_NEEDED
+ 	dev->ibdev.uverbs_ex_cmd_mask =
+ 		(1ull << IB_USER_VERBS_EX_CMD_QUERY_DEVICE);
+ #endif
+@@ -446,9 +425,7 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ #ifdef HAVE_IB_DEV_OPS
+ 	ib_set_device_ops(&dev->ibdev, &efa_dev_ops);
+ #else
+-#ifdef HAVE_HW_STATS
+ 	dev->ibdev.alloc_hw_stats = efa_alloc_hw_stats;
+-#endif
+ 	dev->ibdev.alloc_pd = efa_kzalloc_pd;
+ 	dev->ibdev.alloc_ucontext = efa_kzalloc_ucontext;
+ 	dev->ibdev.create_ah = efa_kzalloc_ah;
+@@ -461,13 +438,9 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ 	dev->ibdev.destroy_cq = efa_destroy_cq;
+ 	dev->ibdev.destroy_qp = efa_destroy_qp;
+ 	dev->ibdev.get_dma_mr = efa_get_dma_mr;
+-#ifdef HAVE_HW_STATS
+ 	dev->ibdev.get_hw_stats = efa_get_hw_stats;
+-#endif
+ 	dev->ibdev.get_link_layer = efa_port_link_layer;
+-#ifdef HAVE_GET_PORT_IMMUTABLE
+ 	dev->ibdev.get_port_immutable = efa_get_port_immutable;
+-#endif
+ 	dev->ibdev.mmap = efa_mmap;
+ 	dev->ibdev.modify_qp = efa_modify_qp;
+ 	dev->ibdev.poll_cq = efa_poll_cq;
+@@ -499,25 +472,8 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ 
+ 	ibdev_info(&dev->ibdev, "IB device registered\n");
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	if (sscanf(dev_name(&dev->ibdev.dev), "efa_%d\n", &devnum) != 1) {
+-		err = -EINVAL;
+-		goto err_unregister_ibdev;
+-	}
+-
+-	err = efa_everbs_dev_init(dev, devnum);
+-	if (err)
+-		goto err_unregister_ibdev;
+-	ibdev_info(&dev->ibdev, "Created everbs device %s%d\n",
+-		   EFA_EVERBS_DEVICE_NAME, devnum);
+-#endif
+-
+ 	return 0;
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-err_unregister_ibdev:
+-	ib_unregister_device(&dev->ibdev);
+-#endif
+ err_release_doorbell_bar:
+ 	efa_release_doorbell_bar(dev);
+ 	return err;
+@@ -525,13 +481,7 @@ static int efa_ib_device_add(struct efa_dev *dev)
+ 
+ static void efa_ib_device_remove(struct efa_dev *dev)
+ {
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-	WARN_ON(!list_empty(&dev->efa_ah_list));
+-#endif
+ 	efa_com_dev_reset(&dev->edev, EFA_REGS_RESET_NORMAL);
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	efa_everbs_dev_destroy(dev);
+-#endif
+ 	ibdev_info(&dev->ibdev, "Unregister ib device\n");
+ 	ib_unregister_device(&dev->ibdev);
+ 	efa_release_doorbell_bar(dev);
+@@ -539,11 +489,7 @@ static void efa_ib_device_remove(struct efa_dev *dev)
+ 
+ static void efa_disable_msix(struct efa_dev *dev)
+ {
+-#ifndef HAVE_PCI_IRQ_VECTOR
+-	pci_disable_msix(dev->pdev);
+-#else
+ 	pci_free_irq_vectors(dev->pdev);
+-#endif
+ }
+ 
+ static int efa_enable_msix(struct efa_dev *dev)
+@@ -555,16 +501,9 @@ static int efa_enable_msix(struct efa_dev *dev)
+ 	dev_dbg(&dev->pdev->dev, "Trying to enable MSI-X, vectors %d\n",
+ 		msix_vecs);
+ 
+-#ifndef HAVE_PCI_IRQ_VECTOR
+-	dev->admin_msix_entry.entry = EFA_MGMNT_MSIX_VEC_IDX;
+-	irq_num = pci_enable_msix_range(dev->pdev,
+-					&dev->admin_msix_entry,
+-					msix_vecs, msix_vecs);
+-#else
+ 	dev->admin_msix_vector_idx = EFA_MGMNT_MSIX_VEC_IDX;
+ 	irq_num = pci_alloc_irq_vectors(dev->pdev, msix_vecs,
+ 					msix_vecs, PCI_IRQ_MSIX);
+-#endif
+ 
+ 	if (irq_num < 0) {
+ 		dev_err(&dev->pdev->dev, "Failed to enable MSI-X. irq_num %d\n",
+@@ -573,6 +512,7 @@ static int efa_enable_msix(struct efa_dev *dev)
+ 	}
+ 
+ 	if (irq_num != msix_vecs) {
++		efa_disable_msix(dev);
+ 		dev_err(&dev->pdev->dev,
+ 			"Allocated %d MSI-X (out of %d requested)\n",
+ 			irq_num, msix_vecs);
+@@ -682,13 +622,8 @@ static struct efa_dev *efa_probe_device(struct pci_dev *pdev)
+ 	if (err)
+ 		goto err_reg_read_destroy;
+ 
+-#ifdef HAVE_PCI_IRQ_VECTOR
+ 	edev->aq.msix_vector_idx = dev->admin_msix_vector_idx;
+ 	edev->aenq.msix_vector_idx = dev->admin_msix_vector_idx;
+-#else
+-	edev->aq.msix_vector_idx = dev->admin_msix_entry.entry;
+-	edev->aenq.msix_vector_idx = dev->admin_msix_entry.entry;
+-#endif
+ 
+ 	err = efa_set_mgmnt_irq(dev);
+ 	if (err)
+@@ -775,150 +710,16 @@ static struct pci_driver efa_pci_driver = {
+ 	.remove         = efa_remove,
+ };
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-static ssize_t
+-(*efa_everbs_cmd_table[EFA_EVERBS_CMD_MAX])(struct efa_dev *dev,
+-					    const char __user *buf, int in_len,
+-					    int out_len) = {
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-	[EFA_EVERBS_CMD_GET_AH] = efa_everbs_cmd_get_ah,
+-#endif
+-#ifndef HAVE_IB_QUERY_DEVICE_UDATA
+-	[EFA_EVERBS_CMD_GET_EX_DEV_ATTRS] = efa_everbs_cmd_get_ex_dev_attrs,
+-#endif
+-};
+-
+-static ssize_t efa_everbs_write(struct file *filp,
+-				const char __user *buf,
+-				size_t count,
+-				loff_t *pos)
+-{
+-	struct efa_dev *dev = filp->private_data;
+-	struct ib_uverbs_cmd_hdr hdr;
+-
+-	if (count < sizeof(hdr))
+-		return -EINVAL;
+-
+-	if (copy_from_user(&hdr, buf, sizeof(hdr)))
+-		return -EFAULT;
+-
+-	if (hdr.in_words * 4 != count)
+-		return -EINVAL;
+-
+-	if (hdr.command >= ARRAY_SIZE(efa_everbs_cmd_table) ||
+-	    !efa_everbs_cmd_table[hdr.command])
+-		return -EINVAL;
+-
+-	return efa_everbs_cmd_table[hdr.command](dev,
+-						 buf + sizeof(hdr),
+-						 hdr.in_words * 4,
+-						 hdr.out_words * 4);
+-}
+-
+-static int efa_everbs_open(struct inode *inode, struct file *filp)
+-{
+-	struct efa_dev *dev;
+-
+-	dev = container_of(inode->i_cdev, struct efa_dev, cdev);
+-
+-	filp->private_data = dev;
+-	return nonseekable_open(inode, filp);
+-}
+-
+-static int efa_everbs_close(struct inode *inode, struct file *filp)
+-{
+-	return 0;
+-}
+-
+-static char *efa_everbs_devnode(struct device *dev, umode_t *mode)
+-{
+-	if (mode)
+-		*mode = 0666;
+-	return kasprintf(GFP_KERNEL, "infiniband/%s", dev_name(dev));
+-}
+-
+-static const struct file_operations efa_everbs_fops = {
+-	.owner   = THIS_MODULE,
+-	.write   = efa_everbs_write,
+-	.open    = efa_everbs_open,
+-	.release = efa_everbs_close,
+-	.llseek  = no_llseek,
+-};
+-
+-static int efa_everbs_dev_init(struct efa_dev *dev, int devnum)
+-{
+-	dev_t devno = MKDEV(efa_everbs_major, devnum);
+-	int err;
+-
+-	WARN_ON(devnum >= EFA_EVERBS_MAX_DEVICES);
+-	cdev_init(&dev->cdev, &efa_everbs_fops);
+-	dev->cdev.owner = THIS_MODULE;
+-
+-	err = cdev_add(&dev->cdev, devno, 1);
+-	if (err)
+-		return err;
+-
+-	dev->everbs_dev = device_create(efa_everbs_class,
+-					&dev->pdev->dev,
+-					devno,
+-					dev,
+-					EFA_EVERBS_DEVICE_NAME "%d",
+-					devnum);
+-	if (IS_ERR(dev->everbs_dev)) {
+-		err = PTR_ERR(dev->everbs_dev);
+-		ibdev_err(&dev->ibdev, "Failed to create device: %s%d [%d]\n",
+-			  EFA_EVERBS_DEVICE_NAME, devnum, err);
+-		goto err;
+-	}
+-
+-	return 0;
+-
+-err:
+-	cdev_del(&dev->cdev);
+-	return err;
+-}
+-
+-static void efa_everbs_dev_destroy(struct efa_dev *dev)
+-{
+-	if (!dev->everbs_dev)
+-		return;
+-
+-	device_destroy(efa_everbs_class, dev->cdev.dev);
+-	cdev_del(&dev->cdev);
+-	dev->everbs_dev = NULL;
+-}
+-#endif /* HAVE_CUSTOM_COMMANDS */
+-
+ static int __init efa_init(void)
+ {
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	dev_t dev;
+-#endif
+ 	int err;
+ 
+ 	pr_info("%s\n", version);
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	err = alloc_chrdev_region(&dev, 0, EFA_EVERBS_MAX_DEVICES,
+-				  EFA_EVERBS_DEVICE_NAME);
+-	if (err) {
+-		pr_err("Couldn't allocate efa_everbs device numbers\n");
+-		goto out;
+-	}
+-	efa_everbs_major = MAJOR(dev);
+-
+-	efa_everbs_class = class_create(THIS_MODULE, EFA_EVERBS_DEVICE_NAME);
+-	if (IS_ERR(efa_everbs_class)) {
+-		err = PTR_ERR(efa_everbs_class);
+-		pr_err("Couldn't create efa_everbs class\n");
+-		goto err_class;
+-	}
+-	efa_everbs_class->devnode = efa_everbs_devnode;
+-#endif
+ 
+ 	err = pci_register_driver(&efa_pci_driver);
+ 	if (err) {
+ 		pr_err("Couldn't register efa driver\n");
+-		goto err_register;
++		return err;
+ 	}
+ 
+ #ifdef HAVE_EFA_GDR
+@@ -926,25 +727,11 @@ static int __init efa_init(void)
+ #endif
+ 
+ 	return 0;
+-
+-err_register:
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	class_destroy(efa_everbs_class);
+-err_class:
+-	unregister_chrdev_region(dev, EFA_EVERBS_MAX_DEVICES);
+-out:
+-#endif
+-	return err;
+ }
+ 
+ static void __exit efa_exit(void)
+ {
+ 	pci_unregister_driver(&efa_pci_driver);
+-#ifdef HAVE_CUSTOM_COMMANDS
+-	class_destroy(efa_everbs_class);
+-	unregister_chrdev_region(MKDEV(efa_everbs_major, 0),
+-				 EFA_EVERBS_MAX_DEVICES);
+-#endif
+ }
+ 
+ module_init(efa_init);
+diff --git a/drivers/amazon/net/efa/efa_sysfs.c b/drivers/amazon/net/efa/efa_sysfs.c
+index 67e3fe9e80ac..c9026c9cfff0 100644
+--- a/drivers/amazon/net/efa/efa_sysfs.c
++++ b/drivers/amazon/net/efa/efa_sysfs.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR BSD-2-Clause
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #include "efa_sysfs.h"
+@@ -10,9 +10,17 @@
+ #include <linux/sysfs.h>
+ 
+ #ifdef HAVE_EFA_GDR
++#include "efa_gdr.h"
++
+ static ssize_t gdr_show(struct device *dev, struct device_attribute *attr,
+ 			char *buf)
+ {
++	struct efa_nvmem dummynv = {};
++
++	if (nvmem_get_fp(&dummynv))
++		return sprintf(buf, "0\n");
++	nvmem_put_fp();
++
+ 	return sprintf(buf, "1\n");
+ }
+ 
+diff --git a/drivers/amazon/net/efa/efa_verbs.c b/drivers/amazon/net/efa/efa_verbs.c
+index f50a6736c96c..b27c2f5b0fd2 100644
+--- a/drivers/amazon/net/efa/efa_verbs.c
++++ b/drivers/amazon/net/efa/efa_verbs.c
+@@ -1,6 +1,6 @@
+ // SPDX-License-Identifier: GPL-2.0 OR Linux-OpenIB
+ /*
+- * Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All rights reserved.
++ * Copyright 2018-2021 Amazon.com, Inc. or its affiliates. All rights reserved.
+  */
+ 
+ #include "kcompat.h"
+@@ -40,8 +40,21 @@ struct efa_user_mmap_entry {
+ 	u8 mmap_flag;
+ };
+ 
+-#ifdef HAVE_HW_STATS
+-#define EFA_DEFINE_STATS(op) \
++#define EFA_DEFINE_DEVICE_STATS(op) \
++	op(EFA_SUBMITTED_CMDS, "submitted_cmds") \
++	op(EFA_COMPLETED_CMDS, "completed_cmds") \
++	op(EFA_CMDS_ERR, "cmds_err") \
++	op(EFA_NO_COMPLETION_CMDS, "no_completion_cmds") \
++	op(EFA_KEEP_ALIVE_RCVD, "keep_alive_rcvd") \
++	op(EFA_ALLOC_PD_ERR, "alloc_pd_err") \
++	op(EFA_CREATE_QP_ERR, "create_qp_err") \
++	op(EFA_CREATE_CQ_ERR, "create_cq_err") \
++	op(EFA_REG_MR_ERR, "reg_mr_err") \
++	op(EFA_ALLOC_UCONTEXT_ERR, "alloc_ucontext_err") \
++	op(EFA_CREATE_AH_ERR, "create_ah_err") \
++	op(EFA_MMAP_ERR, "mmap_err")
++
++#define EFA_DEFINE_PORT_STATS(op) \
+ 	op(EFA_TX_BYTES, "tx_bytes") \
+ 	op(EFA_TX_PKTS, "tx_pkts") \
+ 	op(EFA_RX_BYTES, "rx_bytes") \
+@@ -55,30 +68,25 @@ struct efa_user_mmap_entry {
+ 	op(EFA_RDMA_READ_BYTES, "rdma_read_bytes") \
+ 	op(EFA_RDMA_READ_WR_ERR, "rdma_read_wr_err") \
+ 	op(EFA_RDMA_READ_RESP_BYTES, "rdma_read_resp_bytes") \
+-	op(EFA_SUBMITTED_CMDS, "submitted_cmds") \
+-	op(EFA_COMPLETED_CMDS, "completed_cmds") \
+-	op(EFA_CMDS_ERR, "cmds_err") \
+-	op(EFA_NO_COMPLETION_CMDS, "no_completion_cmds") \
+-	op(EFA_KEEP_ALIVE_RCVD, "keep_alive_rcvd") \
+-	op(EFA_ALLOC_PD_ERR, "alloc_pd_err") \
+-	op(EFA_CREATE_QP_ERR, "create_qp_err") \
+-	op(EFA_CREATE_CQ_ERR, "create_cq_err") \
+-	op(EFA_REG_MR_ERR, "reg_mr_err") \
+-	op(EFA_ALLOC_UCONTEXT_ERR, "alloc_ucontext_err") \
+-	op(EFA_CREATE_AH_ERR, "create_ah_err") \
+-	op(EFA_MMAP_ERR, "mmap_err")
+ 
+ #define EFA_STATS_ENUM(ename, name) ename,
+ #define EFA_STATS_STR(ename, name) [ename] = name,
+ 
+-enum efa_hw_stats {
+-	EFA_DEFINE_STATS(EFA_STATS_ENUM)
++enum efa_hw_device_stats {
++	EFA_DEFINE_DEVICE_STATS(EFA_STATS_ENUM)
+ };
+ 
+-static const char *const efa_stats_names[] = {
+-	EFA_DEFINE_STATS(EFA_STATS_STR)
++static const char *const efa_device_stats_names[] = {
++	EFA_DEFINE_DEVICE_STATS(EFA_STATS_STR)
++};
++
++enum efa_hw_port_stats {
++	EFA_DEFINE_PORT_STATS(EFA_STATS_ENUM)
++};
++
++static const char *const efa_port_stats_names[] = {
++	EFA_DEFINE_PORT_STATS(EFA_STATS_STR)
+ };
+-#endif
+ 
+ #define EFA_CHUNK_PAYLOAD_SHIFT       12
+ #define EFA_CHUNK_PAYLOAD_SIZE        BIT(EFA_CHUNK_PAYLOAD_SHIFT)
+@@ -233,12 +241,6 @@ static int mmap_entry_validate(struct efa_ucontext *ucontext,
+ 		return -EINVAL;
+ 	}
+ 
+-	if (vma->vm_flags & VM_EXEC) {
+-		ibdev_dbg(ucontext->ibucontext.device,
+-			  "Mapping executable pages is not permitted\n");
+-		return -EPERM;
+-	}
+-
+ 	return 0;
+ }
+ 
+@@ -274,21 +276,13 @@ rdma_user_mmap_entry_get(struct ib_ucontext *ibucontext,
+ }
+ #endif /* !defined (HAVE_CORE_MMAP_XA) */
+ 
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ int efa_query_device(struct ib_device *ibdev,
+ 		     struct ib_device_attr *props,
+ 		     struct ib_udata *udata)
+-#else
+-int efa_query_device(struct ib_device *ibdev,
+-		     struct ib_device_attr *props)
+-#endif
+ {
+ 	struct efa_com_get_device_attr_result *dev_attr;
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ 	struct efa_ibv_ex_query_device_resp resp = {};
+-#endif
+ 	struct efa_dev *dev = to_edev(ibdev);
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ 	int err;
+ 
+ 	if (udata && udata->inlen &&
+@@ -297,7 +291,6 @@ int efa_query_device(struct ib_device *ibdev,
+ 			  "Incompatible ABI params, udata not cleared\n");
+ 		return -EINVAL;
+ 	}
+-#endif
+ 
+ 	dev_attr = &dev->dev_attr;
+ 
+@@ -325,7 +318,6 @@ int efa_query_device(struct ib_device *ibdev,
+ 	props->max_sge_rd = dev_attr->max_wr_rdma_sge;
+ 	props->max_pkeys = 1;
+ 
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ 	if (udata && udata->outlen) {
+ 		resp.max_sq_sge = dev_attr->max_sq_sge;
+ 		resp.max_rq_sge = dev_attr->max_rq_sge;
+@@ -347,12 +339,11 @@ int efa_query_device(struct ib_device *ibdev,
+ 			return err;
+ 		}
+ 	}
+-#endif
+ 
+ 	return 0;
+ }
+ 
+-int efa_query_port(struct ib_device *ibdev, u8 port,
++int efa_query_port(struct ib_device *ibdev, port_t port,
+ 		   struct ib_port_attr *props)
+ {
+ 	struct efa_dev *dev = to_edev(ibdev);
+@@ -365,13 +356,8 @@ int efa_query_port(struct ib_device *ibdev, u8 port,
+ 	props->pkey_tbl_len = 1;
+ 	props->active_speed = IB_SPEED_EDR;
+ 	props->active_width = IB_WIDTH_4X;
+-#ifdef HAVE_IB_MTU_INT_TO_ENUM
+ 	props->max_mtu = ib_mtu_int_to_enum(dev->dev_attr.mtu);
+ 	props->active_mtu = ib_mtu_int_to_enum(dev->dev_attr.mtu);
+-#else
+-	props->max_mtu = IB_MTU_4096;
+-	props->active_mtu = IB_MTU_4096;
+-#endif
+ 	props->max_msg_sz = dev->dev_attr.mtu;
+ 	props->max_vl_num = 1;
+ 
+@@ -429,7 +415,7 @@ int efa_query_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
+ 	return 0;
+ }
+ 
+-int efa_query_gid(struct ib_device *ibdev, u8 port, int index,
++int efa_query_gid(struct ib_device *ibdev, port_t port, int index,
+ 		  union ib_gid *gid)
+ {
+ 	struct efa_dev *dev = to_edev(ibdev);
+@@ -439,7 +425,7 @@ int efa_query_gid(struct ib_device *ibdev, u8 port, int index,
+ 	return 0;
+ }
+ 
+-int efa_query_pkey(struct ib_device *ibdev, u8 port, u16 index,
++int efa_query_pkey(struct ib_device *ibdev, port_t port, u16 index,
+ 		   u16 *pkey)
+ {
+ 	if (index > 0)
+@@ -481,12 +467,7 @@ int efa_alloc_pd(struct ib_pd *ibpd,
+ #endif
+ 
+ 	if (udata->inlen &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, 0, udata->inlen - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(&dev->ibdev,
+ 			  "Incompatible ABI params, udata not cleared\n");
+ 		err = -EINVAL;
+@@ -866,14 +847,8 @@ struct ib_qp *efa_create_qp(struct ib_pd *ibpd,
+ 	}
+ 
+ 	if (udata->inlen > sizeof(cmd) &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, sizeof(cmd),
+ 				 udata->inlen - sizeof(cmd))) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, sizeof(cmd),
+-				 udata->inlen - sizeof(cmd) - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(&dev->ibdev,
+ 			  "Incompatible ABI params, unknown fields in udata\n");
+ 		err = -EINVAL;
+@@ -1177,12 +1152,7 @@ int efa_modify_qp(struct ib_qp *ibqp, struct ib_qp_attr *qp_attr,
+ #endif
+ 
+ 	if (udata->inlen &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, 0, udata->inlen - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(&dev->ibdev,
+ 			  "Incompatible ABI params, udata not cleared\n");
+ 		return -EINVAL;
+@@ -1313,12 +1283,8 @@ static int cq_mmap_entries_setup(struct efa_dev *dev, struct efa_cq *cq,
+ 	return 0;
+ }
+ 
+-#ifdef HAVE_CREATE_CQ_ATTR
+ int efa_create_cq(struct ib_cq *ibcq, const struct ib_cq_init_attr *attr,
+ 		  struct ib_udata *udata)
+-#else
+-int efa_create_cq(struct ib_cq *ibcq, int entries, struct ib_udata *udata)
+-#endif
+ {
+ #ifdef HAVE_UDATA_TO_DRV_CONTEXT
+ 	struct efa_ucontext *ucontext = rdma_udata_to_drv_context(
+@@ -1333,17 +1299,13 @@ int efa_create_cq(struct ib_cq *ibcq, int entries, struct ib_udata *udata)
+ 	struct efa_dev *dev = to_edev(ibdev);
+ 	struct efa_ibv_create_cq cmd = {};
+ 	struct efa_cq *cq = to_ecq(ibcq);
+-#ifdef HAVE_CREATE_CQ_ATTR
+ 	int entries = attr->cqe;
+-#endif
+ 	int err;
+ 
+ 	ibdev_dbg(ibdev, "create_cq entries %d\n", entries);
+ 
+-#ifdef HAVE_CREATE_CQ_ATTR
+ 	if (attr->flags)
+ 		return -EOPNOTSUPP;
+-#endif
+ 
+ 	if (entries < 1 || entries > dev->dev_attr.max_cq_depth) {
+ 		ibdev_dbg(ibdev,
+@@ -1369,14 +1331,8 @@ int efa_create_cq(struct ib_cq *ibcq, int entries, struct ib_udata *udata)
+ 	}
+ 
+ 	if (udata->inlen > sizeof(cmd) &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, sizeof(cmd),
+ 				 udata->inlen - sizeof(cmd))) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, sizeof(cmd),
+-				 udata->inlen - sizeof(cmd) - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(ibdev,
+ 			  "Incompatible ABI params, unknown fields in udata\n");
+ 		err = -EINVAL;
+@@ -1480,11 +1436,6 @@ struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev,
+ 			     const struct ib_cq_init_attr *attr,
+ 			     struct ib_ucontext *ibucontext,
+ 			     struct ib_udata *udata)
+-#else
+-struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev, int entries,
+-			     int vector,
+-			     struct ib_ucontext *ibucontext,
+-			     struct ib_udata *udata)
+ #endif
+ {
+ 	struct efa_dev *dev = to_edev(ibdev);
+@@ -1505,11 +1456,7 @@ struct ib_cq *efa_kzalloc_cq(struct ib_device *ibdev, int entries,
+ #endif
+ 
+ 	cq->ibcq.device = ibdev;
+-#ifdef HAVE_CREATE_CQ_ATTR
+ 	err = efa_create_cq(&cq->ibcq, attr, udata);
+-#else
+-	err = efa_create_cq(&cq->ibcq, entries, udata);
+-#endif
+ 	if (err)
+ 		goto err_free_cq;
+ 
+@@ -1606,52 +1553,6 @@ static int umem_to_page_list(struct efa_dev *dev,
+ 
+ 	return 0;
+ }
+-#else
+-#warning deprecated api
+-static int umem_to_page_list(struct efa_dev *dev,
+-			     struct ib_umem *umem,
+-			     u64 *page_list,
+-			     u32 hp_cnt,
+-			     u8 hp_shift)
+-{
+-	u32 pages_in_hp = BIT(hp_shift - PAGE_SHIFT);
+-	struct ib_umem_chunk *chunk;
+-	unsigned int page_idx = 0;
+-	unsigned int pages_in_sg;
+-	unsigned int hp_idx = 0;
+-	unsigned int entry;
+-	unsigned int i;
+-
+-	ibdev_dbg(&dev->ibdev, "hp_cnt[%u], pages_in_hp[%u]\n",
+-		  hp_cnt, pages_in_hp);
+-
+-	list_for_each_entry(chunk, &umem->chunk_list, list) {
+-		for (entry = 0; entry < chunk->nents; entry++) {
+-			if (sg_dma_len(&chunk->page_list[entry]) & ~PAGE_MASK) {
+-				ibdev_dbg(&dev->ibdev,
+-					  "sg_dma_len[%u] does not divide by PAGE_SIZE[%lu]\n",
+-					  sg_dma_len(&chunk->page_list[entry]),
+-					  PAGE_SIZE);
+-				return -EINVAL;
+-			}
+-
+-			pages_in_sg = sg_dma_len(&chunk->page_list[entry])
+-				      >> PAGE_SHIFT;
+-			for (i = 0; i < pages_in_sg; i++) {
+-				if (page_idx % pages_in_hp == 0) {
+-					page_list[hp_idx] =
+-						sg_dma_address(&chunk->page_list[entry]) +
+-						i * PAGE_SIZE;
+-					hp_idx++;
+-				}
+-
+-				page_idx++;
+-			}
+-		}
+-	}
+-
+-	return 0;
+-}
+ #endif
+ 
+ static struct scatterlist *efa_vmalloc_buf_to_sg(u64 *buf, int page_cnt)
+@@ -2042,11 +1943,7 @@ static unsigned long efa_cont_pages(struct ib_umem *umem,
+ 				    u64 addr)
+ {
+ 	unsigned long max_page_shift = fls64(page_size_cap);
+-#ifndef HAVE_UMEM_SCATTERLIST_IF
+-	struct ib_umem_chunk *chunk;
+-#else
+ 	struct scatterlist *sg;
+-#endif
+ 	u64 base = ~0, p = 0;
+ 	unsigned long tmp;
+ 	unsigned long m;
+@@ -2059,30 +1956,6 @@ static unsigned long efa_cont_pages(struct ib_umem *umem,
+ 	m = find_first_bit(&tmp, BITS_PER_LONG);
+ 	m = min_t(unsigned long, max_page_shift - PAGE_SHIFT, m);
+ 
+-#ifndef HAVE_UMEM_SCATTERLIST_IF
+-	list_for_each_entry(chunk, &umem->chunk_list, list) {
+-		for (entry = 0; entry < chunk->nents; entry++) {
+-			len = DIV_ROUND_UP(sg_dma_len(&chunk->page_list[entry]),
+-					   PAGE_SIZE);
+-			pfn = sg_dma_address(&chunk->page_list[entry]) >> PAGE_SHIFT;
+-			if (base + p != pfn) {
+-				/*
+-				 * If either the offset or the new
+-				 * base are unaligned update m
+-				 */
+-				tmp = (unsigned long)(pfn | p);
+-				if (!IS_ALIGNED(tmp, 1 << m))
+-					m = find_first_bit(&tmp, BITS_PER_LONG);
+-
+-				base = pfn;
+-				p = 0;
+-			}
+-
+-			p += len;
+-			i += len;
+-		}
+-	}
+-#else
+ 	for_each_sg(umem->sg_head.sgl, sg, umem->nmap, entry) {
+ 		len = DIV_ROUND_UP(sg_dma_len(sg), PAGE_SIZE);
+ 		pfn = sg_dma_address(sg) >> PAGE_SHIFT;
+@@ -2102,7 +1975,6 @@ static unsigned long efa_cont_pages(struct ib_umem *umem,
+ 		p += len;
+ 		i += len;
+ 	}
+-#endif
+ 
+ 	if (i)
+ 		m = min_t(unsigned long, ilog2(roundup_pow_of_two(i)), m);
+@@ -2136,12 +2008,7 @@ struct ib_mr *efa_reg_mr(struct ib_pd *ibpd, u64 start, u64 length,
+ #endif
+ 
+ 	if (udata && udata->inlen &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, 0, sizeof(udata->inlen))) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, 0, sizeof(udata->inlen) - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(&dev->ibdev,
+ 			  "Incompatible ABI params, udata not cleared\n");
+ 		err = -EINVAL;
+@@ -2249,7 +2116,16 @@ struct ib_mr *efa_reg_mr(struct ib_pd *ibpd, u64 start, u64 length,
+ 
+ 	params.page_shift = order_base_2(pg_sz);
+ #ifdef HAVE_IB_UMEM_NUM_DMA_BLOCKS
++#ifdef HAVE_EFA_GDR
++	if (mr->umem)
++		params.page_num = ib_umem_num_dma_blocks(mr->umem, pg_sz);
++	else
++		params.page_num = DIV_ROUND_UP(length +
++					       (virt_addr & (pg_sz - 1)),
++					       pg_sz);
++#else
+ 	params.page_num = ib_umem_num_dma_blocks(mr->umem, pg_sz);
++#endif
+ #else
+ 	params.page_num = DIV_ROUND_UP(length + (virt_addr & (pg_sz - 1)),
+ 				       pg_sz);
+@@ -2298,7 +2174,7 @@ struct ib_mr *efa_reg_mr(struct ib_pd *ibpd, u64 start, u64 length,
+ err_unmap:
+ #ifdef HAVE_EFA_GDR
+ 	if (mr->nvmem)
+-		nvmem_release(dev, mr->nvmem, false);
++		nvmem_put(mr->nvmem->ticket, false);
+ 	else
+ 		ib_umem_release(mr->umem);
+ #else
+@@ -2345,8 +2221,7 @@ int efa_dereg_mr(struct ib_mr *ibmr)
+ 	return 0;
+ }
+ 
+-#ifdef HAVE_GET_PORT_IMMUTABLE
+-int efa_get_port_immutable(struct ib_device *ibdev, u8 port_num,
++int efa_get_port_immutable(struct ib_device *ibdev, port_t port_num,
+ 			   struct ib_port_immutable *immutable)
+ {
+ 	struct ib_port_attr attr;
+@@ -2363,7 +2238,6 @@ int efa_get_port_immutable(struct ib_device *ibdev, u8 port_num,
+ 
+ 	return 0;
+ }
+-#endif
+ 
+ static int efa_dealloc_uar(struct efa_dev *dev, u16 uarn)
+ {
+@@ -2437,12 +2311,8 @@ int efa_alloc_ucontext(struct ib_ucontext *ibucontext, struct ib_udata *udata)
+ 	INIT_LIST_HEAD(&ucontext->pending_mmaps);
+ #endif /* !defined(HAVE_CORE_MMAP_XA) */
+ 
+-#ifdef HAVE_IB_QUERY_DEVICE_UDATA
+ 	resp.cmds_supp_udata_mask |= EFA_USER_CMDS_SUPP_UDATA_QUERY_DEVICE;
+-#endif
+-#ifndef HAVE_CREATE_AH_NO_UDATA
+ 	resp.cmds_supp_udata_mask |= EFA_USER_CMDS_SUPP_UDATA_CREATE_AH;
+-#endif
+ 	resp.sub_cqs_per_cq = dev->dev_attr.sub_cqs_per_cq;
+ 	resp.inline_buf_size = dev->dev_attr.inline_buf_size;
+ 	resp.max_llq_size = dev->dev_attr.max_llq_size;
+@@ -2623,99 +2493,6 @@ int efa_mmap(struct ib_ucontext *ibucontext,
+ 	return __efa_mmap(dev, ucontext, vma);
+ }
+ 
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-struct efa_ah_id {
+-	struct list_head list;
+-	/* dest_addr */
+-	u8 id[EFA_GID_SIZE];
+-	unsigned int ref_count;
+-	u16 ah;
+-};
+-
+-static inline bool efa_ah_id_equal(u8 *id1, u8 *id2)
+-{
+-	return !memcmp(id1, id2, EFA_GID_SIZE);
+-}
+-
+-/* Must be called with dev->ah_list_lock held */
+-static int efa_get_ah_id(struct efa_dev *dev, u8 *id, bool ref_update, u16 *ah)
+-{
+-	struct efa_ah_id *ah_id;
+-
+-	list_for_each_entry(ah_id, &dev->efa_ah_list, list) {
+-		if (efa_ah_id_equal(ah_id->id, id)) {
+-			if (ref_update)
+-				ah_id->ref_count++;
+-			if (ah)
+-				*ah = ah_id->ah;
+-			return 0;
+-		}
+-	}
+-
+-	return -EINVAL;
+-}
+-
+-static void efa_put_ah_id(struct efa_dev *dev, u8 *id)
+-{
+-	struct efa_ah_id *ah_id, *tmp;
+-
+-	mutex_lock(&dev->ah_list_lock);
+-	list_for_each_entry_safe(ah_id, tmp, &dev->efa_ah_list, list) {
+-		if (efa_ah_id_equal(ah_id->id, id)) {
+-			ah_id->ref_count--;
+-			if (!ah_id->ref_count) {
+-				list_del(&ah_id->list);
+-				kfree(ah_id);
+-				mutex_unlock(&dev->ah_list_lock);
+-				return;
+-			}
+-		}
+-	}
+-	mutex_unlock(&dev->ah_list_lock);
+-}
+-
+-/* Must be called with dev->ah_list_lock held */
+-static struct efa_ah_id *efa_create_ah_id(struct efa_dev *dev, u8 *id, u16 ah)
+-{
+-	struct efa_ah_id *ah_id;
+-
+-	ah_id = kzalloc(sizeof(*ah_id), GFP_KERNEL);
+-	if (!ah_id)
+-		return NULL;
+-
+-	memcpy(ah_id->id, id, sizeof(ah_id->id));
+-	ah_id->ref_count = 1;
+-	ah_id->ah = ah;
+-
+-	return ah_id;
+-}
+-
+-static int efa_add_ah_id(struct efa_dev *dev, u8 *id, u16 ah)
+-{
+-	struct efa_ah_id *ah_id;
+-	int err;
+-
+-	mutex_lock(&dev->ah_list_lock);
+-	err = efa_get_ah_id(dev, id, true, NULL);
+-	if (err) {
+-		ah_id = efa_create_ah_id(dev, id, ah);
+-		if (!ah_id) {
+-			err = -ENOMEM;
+-			goto err_unlock;
+-		}
+-
+-		list_add_tail(&ah_id->list, &dev->efa_ah_list);
+-	}
+-	mutex_unlock(&dev->ah_list_lock);
+-
+-	return 0;
+-
+-err_unlock:
+-	mutex_unlock(&dev->ah_list_lock);
+-	return err;
+-}
+-#endif
+-
+ static int efa_ah_destroy(struct efa_dev *dev, struct efa_ah *ah)
+ {
+ 	struct efa_com_destroy_ah_params params = {
+@@ -2730,11 +2507,7 @@ int efa_create_ah(struct ib_ah *ibah,
+ #ifdef HAVE_CREATE_AH_INIT_ATTR
+ 		  struct rdma_ah_init_attr *init_attr,
+ #else
+-#ifdef HAVE_CREATE_AH_RDMA_ATTR
+ 		  struct rdma_ah_attr *ah_attr,
+-#else
+-		  struct ib_ah_attr *ah_attr,
+-#endif
+ 		  u32 flags,
+ #endif
+ 		  struct ib_udata *udata)
+@@ -2744,9 +2517,7 @@ int efa_create_ah(struct ib_ah *ibah,
+ #endif
+ 	struct efa_dev *dev = to_edev(ibah->device);
+ 	struct efa_com_create_ah_params params = {};
+-#ifndef HAVE_CREATE_AH_NO_UDATA
+ 	struct efa_ibv_create_ah_resp resp = {};
+-#endif
+ 	struct efa_com_create_ah_result result;
+ 	struct efa_ah *ah = to_eah(ibah);
+ 	int err;
+@@ -2764,7 +2535,6 @@ int efa_create_ah(struct ib_ah *ibah,
+ 	}
+ #endif
+ 
+-#ifndef HAVE_CREATE_AH_NO_UDATA
+ #ifndef HAVE_NO_KVERBS_DRIVERS
+ 	if (!udata) {
+ 		ibdev_dbg(&dev->ibdev, "udata is NULL\n");
+@@ -2774,17 +2544,11 @@ int efa_create_ah(struct ib_ah *ibah,
+ #endif
+ 
+ 	if (udata->inlen &&
+-#ifdef HAVE_UVERBS_CMD_HDR_FIX
+ 	    !ib_is_udata_cleared(udata, 0, udata->inlen)) {
+-#else
+-	    /* WA for e093111ddb6c ("IB/core: Fix input len in multiple user verbs") */
+-	    !ib_is_udata_cleared(udata, 0, udata->inlen - sizeof(struct ib_uverbs_cmd_hdr))) {
+-#endif
+ 		ibdev_dbg(&dev->ibdev, "Incompatible ABI params\n");
+ 		err = -EINVAL;
+ 		goto err_out;
+ 	}
+-#endif
+ 
+ 	memcpy(params.dest_addr, ah_attr->grh.dgid.raw,
+ 	       sizeof(params.dest_addr));
+@@ -2796,7 +2560,6 @@ int efa_create_ah(struct ib_ah *ibah,
+ 	memcpy(ah->id, ah_attr->grh.dgid.raw, sizeof(ah->id));
+ 	ah->ah = result.ah;
+ 
+-#ifndef HAVE_CREATE_AH_NO_UDATA
+ 	resp.efa_address_handle = result.ah;
+ 
+ 	if (udata->outlen) {
+@@ -2808,13 +2571,6 @@ int efa_create_ah(struct ib_ah *ibah,
+ 			goto err_destroy_ah;
+ 		}
+ 	}
+-#else
+-	err = efa_add_ah_id(dev, ah_attr->grh.dgid.raw, result.ah);
+-	if (err) {
+-		ibdev_dbg(&dev->ibdev, "Failed to add AH id\n");
+-		goto err_destroy_ah;
+-	}
+-#endif
+ 	ibdev_dbg(&dev->ibdev, "Created ah[%d]\n", ah->ah);
+ 
+ 	return 0;
+@@ -2836,13 +2592,6 @@ struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+ struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+ 			     struct rdma_ah_attr *ah_attr,
+ 			     struct ib_udata *udata)
+-#elif defined(HAVE_CREATE_AH_UDATA)
+-struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+-			     struct ib_ah_attr *ah_attr,
+-			     struct ib_udata *udata)
+-#else
+-struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+-			     struct ib_ah_attr *ah_attr)
+ #endif
+ {
+ 	struct efa_ah *ah;
+@@ -2850,9 +2599,6 @@ struct ib_ah *efa_kzalloc_ah(struct ib_pd *ibpd,
+ #ifndef HAVE_CREATE_DESTROY_AH_FLAGS
+ 	u32 flags = 0;
+ #endif
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-	void *udata = NULL;
+-#endif
+ 
+ 	ah = kzalloc(sizeof(*ah), GFP_KERNEL);
+ 	if (!ah)
+@@ -2911,33 +2657,72 @@ int efa_destroy_ah(struct ib_ah *ibah)
+ 	err = efa_ah_destroy(dev, ah);
+ 	if (err)
+ 		return err;
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-	efa_put_ah_id(dev, ah->id);
+-#endif
+ 	kfree(ah);
+ 	return 0;
+ #endif
+ }
+ 
+-#ifdef HAVE_HW_STATS
+-struct rdma_hw_stats *efa_alloc_hw_stats(struct ib_device *ibdev, u8 port_num)
++#ifdef HAVE_SPLIT_STATS_ALLOC
++struct rdma_hw_stats *efa_alloc_hw_port_stats(struct ib_device *ibdev,
++					      port_t port_num)
+ {
+-	return rdma_alloc_hw_stats_struct(efa_stats_names,
+-					  ARRAY_SIZE(efa_stats_names),
++	return rdma_alloc_hw_stats_struct(efa_port_stats_names,
++					  ARRAY_SIZE(efa_port_stats_names),
+ 					  RDMA_HW_STATS_DEFAULT_LIFESPAN);
+ }
+ 
+-int efa_get_hw_stats(struct ib_device *ibdev, struct rdma_hw_stats *stats,
+-		     u8 port_num, int index)
++struct rdma_hw_stats *efa_alloc_hw_device_stats(struct ib_device *ibdev)
++{
++	return rdma_alloc_hw_stats_struct(efa_device_stats_names,
++					  ARRAY_SIZE(efa_device_stats_names),
++					  RDMA_HW_STATS_DEFAULT_LIFESPAN);
++}
++#else
++struct rdma_hw_stats *efa_alloc_hw_stats(struct ib_device *ibdev, port_t port_num)
++{
++	if (port_num)
++		return rdma_alloc_hw_stats_struct(efa_port_stats_names,
++						  ARRAY_SIZE(efa_port_stats_names),
++						  RDMA_HW_STATS_DEFAULT_LIFESPAN);
++	else
++		return rdma_alloc_hw_stats_struct(efa_device_stats_names,
++						  ARRAY_SIZE(efa_device_stats_names),
++						  RDMA_HW_STATS_DEFAULT_LIFESPAN);
++}
++#endif
++
++static int efa_fill_device_stats(struct efa_dev *dev,
++				 struct rdma_hw_stats *stats)
++{
++	struct efa_com_stats_admin *as = &dev->edev.aq.stats;
++	struct efa_stats *s = &dev->stats;
++
++	stats->value[EFA_SUBMITTED_CMDS] = atomic64_read(&as->submitted_cmd);
++	stats->value[EFA_COMPLETED_CMDS] = atomic64_read(&as->completed_cmd);
++	stats->value[EFA_CMDS_ERR] = atomic64_read(&as->cmd_err);
++	stats->value[EFA_NO_COMPLETION_CMDS] = atomic64_read(&as->no_completion);
++
++	stats->value[EFA_KEEP_ALIVE_RCVD] = atomic64_read(&s->keep_alive_rcvd);
++	stats->value[EFA_ALLOC_PD_ERR] = atomic64_read(&s->alloc_pd_err);
++	stats->value[EFA_CREATE_QP_ERR] = atomic64_read(&s->create_qp_err);
++	stats->value[EFA_CREATE_CQ_ERR] = atomic64_read(&s->create_cq_err);
++	stats->value[EFA_REG_MR_ERR] = atomic64_read(&s->reg_mr_err);
++	stats->value[EFA_ALLOC_UCONTEXT_ERR] =
++		atomic64_read(&s->alloc_ucontext_err);
++	stats->value[EFA_CREATE_AH_ERR] = atomic64_read(&s->create_ah_err);
++	stats->value[EFA_MMAP_ERR] = atomic64_read(&s->mmap_err);
++
++	return ARRAY_SIZE(efa_device_stats_names);
++}
++
++static int efa_fill_port_stats(struct efa_dev *dev, struct rdma_hw_stats *stats,
++			       port_t port_num)
+ {
+ 	struct efa_com_get_stats_params params = {};
+ 	union efa_com_get_stats_result result;
+-	struct efa_dev *dev = to_edev(ibdev);
+ 	struct efa_com_rdma_read_stats *rrs;
+ 	struct efa_com_messages_stats *ms;
+ 	struct efa_com_basic_stats *bs;
+-	struct efa_com_stats_admin *as;
+-	struct efa_stats *s;
+ 	int err;
+ 
+ 	params.scope = EFA_ADMIN_GET_STATS_SCOPE_ALL;
+@@ -2976,26 +2761,17 @@ int efa_get_hw_stats(struct ib_device *ibdev, struct rdma_hw_stats *stats,
+ 	stats->value[EFA_RDMA_READ_WR_ERR] = rrs->read_wr_err;
+ 	stats->value[EFA_RDMA_READ_RESP_BYTES] = rrs->read_resp_bytes;
+ 
+-	as = &dev->edev.aq.stats;
+-	stats->value[EFA_SUBMITTED_CMDS] = atomic64_read(&as->submitted_cmd);
+-	stats->value[EFA_COMPLETED_CMDS] = atomic64_read(&as->completed_cmd);
+-	stats->value[EFA_CMDS_ERR] = atomic64_read(&as->cmd_err);
+-	stats->value[EFA_NO_COMPLETION_CMDS] = atomic64_read(&as->no_completion);
+-
+-	s = &dev->stats;
+-	stats->value[EFA_KEEP_ALIVE_RCVD] = atomic64_read(&s->keep_alive_rcvd);
+-	stats->value[EFA_ALLOC_PD_ERR] = atomic64_read(&s->alloc_pd_err);
+-	stats->value[EFA_CREATE_QP_ERR] = atomic64_read(&s->create_qp_err);
+-	stats->value[EFA_CREATE_CQ_ERR] = atomic64_read(&s->create_cq_err);
+-	stats->value[EFA_REG_MR_ERR] = atomic64_read(&s->reg_mr_err);
+-	stats->value[EFA_ALLOC_UCONTEXT_ERR] =
+-		atomic64_read(&s->alloc_ucontext_err);
+-	stats->value[EFA_CREATE_AH_ERR] = atomic64_read(&s->create_ah_err);
+-	stats->value[EFA_MMAP_ERR] = atomic64_read(&s->mmap_err);
++	return ARRAY_SIZE(efa_port_stats_names);
++}
+ 
+-	return ARRAY_SIZE(efa_stats_names);
++int efa_get_hw_stats(struct ib_device *ibdev, struct rdma_hw_stats *stats,
++		     port_t port_num, int index)
++{
++	if (port_num)
++		return efa_fill_port_stats(to_edev(ibdev), stats, port_num);
++	else
++		return efa_fill_device_stats(to_edev(ibdev), stats);
+ }
+-#endif
+ 
+ #ifndef HAVE_NO_KVERBS_DRIVERS
+ #ifdef HAVE_POST_CONST_WR
+@@ -3058,83 +2834,8 @@ struct ib_mr *efa_get_dma_mr(struct ib_pd *ibpd, int acc)
+ #endif
+ 
+ enum rdma_link_layer efa_port_link_layer(struct ib_device *ibdev,
+-					 u8 port_num)
++					 port_t port_num)
+ {
+ 	return IB_LINK_LAYER_UNSPECIFIED;
+ }
+ 
+-#ifdef HAVE_CUSTOM_COMMANDS
+-#ifdef HAVE_CREATE_AH_NO_UDATA
+-ssize_t efa_everbs_cmd_get_ah(struct efa_dev *dev,
+-			      const char __user *buf,
+-			      int in_len,
+-			      int out_len)
+-{
+-	struct efa_everbs_get_ah_resp resp = {};
+-	struct efa_everbs_get_ah cmd = {};
+-	int err;
+-
+-	if (out_len < sizeof(resp))
+-		return -ENOSPC;
+-
+-	if (copy_from_user(&cmd, buf, sizeof(cmd)))
+-		return -EFAULT;
+-
+-	if (cmd.comp_mask) {
+-		ibdev_dbg(&dev->ibdev,
+-			"Incompatible ABI params, unknown fields in udata\n");
+-		return -EINVAL;
+-	}
+-
+-	mutex_lock(&dev->ah_list_lock);
+-	err = efa_get_ah_id(dev, cmd.gid, false, &resp.efa_address_handle);
+-	mutex_unlock(&dev->ah_list_lock);
+-	if (err) {
+-		ibdev_dbg(&dev->ibdev,
+-			"Couldn't find AH with specified GID\n");
+-		return err;
+-	}
+-
+-	if (copy_to_user((void __user *)(unsigned long)cmd.response, &resp,
+-			 sizeof(resp)))
+-		return -EFAULT;
+-
+-	return in_len;
+-}
+-#endif
+-
+-#ifndef HAVE_IB_QUERY_DEVICE_UDATA
+-ssize_t efa_everbs_cmd_get_ex_dev_attrs(struct efa_dev *dev,
+-					const char __user *buf,
+-					int in_len,
+-					int out_len)
+-{
+-	struct efa_com_get_device_attr_result *dev_attr = &dev->dev_attr;
+-	struct efa_everbs_get_ex_dev_attrs_resp resp = {};
+-	struct efa_everbs_get_ex_dev_attrs cmd = {};
+-
+-	if (out_len < sizeof(resp))
+-		return -ENOSPC;
+-
+-	if (copy_from_user(&cmd, buf, sizeof(cmd)))
+-		return -EFAULT;
+-
+-	if (cmd.comp_mask || !is_reserved_cleared(cmd.reserved_20)) {
+-		ibdev_dbg(&dev->ibdev,
+-			  "Incompatible ABI params, unknown fields in udata\n");
+-		return -EINVAL;
+-	}
+-
+-	resp.max_sq_sge = dev_attr->max_sq_sge;
+-	resp.max_rq_sge = dev_attr->max_rq_sge;
+-	resp.max_sq_wr = dev_attr->max_sq_depth;
+-	resp.max_rq_wr = dev_attr->max_rq_depth;
+-
+-	if (copy_to_user((void __user *)(unsigned long)cmd.response,
+-			 &resp, sizeof(resp)))
+-		return -EFAULT;
+-
+-	return in_len;
+-}
+-#endif
+-#endif
+diff --git a/drivers/amazon/net/efa/kcompat.h b/drivers/amazon/net/efa/kcompat.h
+index 60575885f33a..d0887952d8c9 100644
+--- a/drivers/amazon/net/efa/kcompat.h
++++ b/drivers/amazon/net/efa/kcompat.h
+@@ -6,15 +6,9 @@
+ #ifndef _KCOMPAT_H_
+ #define _KCOMPAT_H_
+ 
+-#include "config.h"
+-
+-#if defined(HAVE_CREATE_AH_NO_UDATA) || !defined(HAVE_IB_QUERY_DEVICE_UDATA)
+-#define HAVE_CUSTOM_COMMANDS
+-#endif
++#include <linux/types.h>
+ 
+-#ifndef ALIGN_DOWN
+-#define ALIGN_DOWN(x, a)	__ALIGN_KERNEL((x) - ((a) - 1), (a))
+-#endif
++#include "config.h"
+ 
+ #ifndef HAVE_IB_IS_UDATA_CLEARED
+ #include <linux/string.h>
+@@ -186,4 +180,10 @@ static inline void __rdma_umem_block_iter_start(struct ib_block_iter *biter,
+ 	     __rdma_block_iter_next(biter);)
+ #endif
+ 
++#ifdef HAVE_U32_PORT
++typedef u32 port_t;
++#else
++typedef u8 port_t;
++#endif
++
+ #endif /* _KCOMPAT_H_ */
+diff --git a/drivers/amazon/net/efa/nv-p2p.h b/drivers/amazon/net/efa/nv-p2p.h
+new file mode 100644
+index 000000000000..d74e024963d5
+--- /dev/null
++++ b/drivers/amazon/net/efa/nv-p2p.h
+@@ -0,0 +1,439 @@
++/*
++ * Copyright (c) 2011-2016, NVIDIA CORPORATION. All rights reserved.
++ *
++ * Permission is hereby granted, free of charge, to any person obtaining a
++ * copy of this software and associated documentation files (the "Software"),
++ * to deal in the Software without restriction, including without limitation
++ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
++ * and/or sell copies of the Software, and to permit persons to whom the
++ * Software is furnished to do so, subject to the following conditions:
++ *
++ * The above copyright notice and this permission notice shall be included in
++ * all copies or substantial portions of the Software.
++ *
++ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
++ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
++ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
++ * THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
++ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
++ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
++ * DEALINGS IN THE SOFTWARE.
++ */
++
++#ifndef _NV_P2P_H_
++#define _NV_P2P_H_
++
++/*
++ * NVIDIA P2P Structure Versioning
++ *
++ * For the nvidia_p2p_*_t structures allocated by the NVIDIA driver, it will
++ * set the version field of the structure according to the definition used by
++ * the NVIDIA driver. The "major" field of the version is defined as the upper
++ * 16 bits, and the "minor" field of the version is defined as the lower 16
++ * bits. The version field will always be the first 4 bytes of the structure,
++ * and third-party drivers should check the value of this field in structures
++ * allocated by the NVIDIA driver to ensure runtime compatibility.
++ *
++ * In general, version numbers will be incremented as follows:
++ * - When a backwards-compatible change is made to the structure layout, the
++ *   minor version for that structure will be incremented. Third-party drivers
++ *   built against an older minor version will continue to work with the newer
++ *   minor version used by the NVIDIA driver, without recompilation.
++ * - When a breaking change is made to the structure layout, the major version
++ *   will be incremented. Third-party drivers built against an older major
++ *   version require at least recompilation and potentially additional updates
++ *   to use the new API.
++ */
++#define NVIDIA_P2P_MAJOR_VERSION_MASK   0xffff0000
++#define NVIDIA_P2P_MINOR_VERSION_MASK   0x0000ffff
++
++#define NVIDIA_P2P_MAJOR_VERSION(v) \
++    (((v) & NVIDIA_P2P_MAJOR_VERSION_MASK) >> 16)
++
++#define NVIDIA_P2P_MINOR_VERSION(v) \
++    (((v) & NVIDIA_P2P_MINOR_VERSION_MASK))
++
++#define NVIDIA_P2P_MAJOR_VERSION_MATCHES(p, v) \
++    (NVIDIA_P2P_MAJOR_VERSION((p)->version) == NVIDIA_P2P_MAJOR_VERSION(v))
++
++#define NVIDIA_P2P_VERSION_COMPATIBLE(p, v)    \
++    (NVIDIA_P2P_MAJOR_VERSION_MATCHES(p, v) && \
++     (NVIDIA_P2P_MINOR_VERSION((p)->version) >= (NVIDIA_P2P_MINOR_VERSION(v))))
++
++enum {
++    NVIDIA_P2P_ARCHITECTURE_TESLA = 0,
++    NVIDIA_P2P_ARCHITECTURE_FERMI,
++    NVIDIA_P2P_ARCHITECTURE_CURRENT = NVIDIA_P2P_ARCHITECTURE_FERMI
++};
++
++#define NVIDIA_P2P_PARAMS_VERSION   0x00010001
++
++enum {
++    NVIDIA_P2P_PARAMS_ADDRESS_INDEX_GPU = 0,
++    NVIDIA_P2P_PARAMS_ADDRESS_INDEX_THIRD_PARTY_DEVICE,
++    NVIDIA_P2P_PARAMS_ADDRESS_INDEX_MAX = \
++        NVIDIA_P2P_PARAMS_ADDRESS_INDEX_THIRD_PARTY_DEVICE
++};
++
++typedef
++struct nvidia_p2p_params {
++    u32 version;
++    u32 architecture;
++    union nvidia_p2p_mailbox_addresses {
++        struct {
++            u64 wmb_addr;
++            u64 wmb_data;
++            u64 rreq_addr;
++            u64 rcomp_addr;
++            u64 reserved[2];
++        } fermi;
++    } addresses[NVIDIA_P2P_PARAMS_ADDRESS_INDEX_MAX+1];
++} nvidia_p2p_params_t;
++
++/*
++ * @brief
++ *   Initializes a third-party P2P mapping between an NVIDIA
++ *   GPU and a third-party device.
++ *
++ * @param[in]     p2p_token
++ *   A token that uniquely identifies the P2P mapping.
++ * @param[in,out] params
++ *   A pointer to a structure with P2P mapping parameters.
++ * @param[in]     destroy_callback
++ *   A pointer to the function to be invoked when the P2P mapping
++ *   is destroyed implictly.
++ * @param[in]     data
++ *   An opaque pointer to private data to be passed to the
++ *   callback function.
++ *
++ * @return
++ *    0           upon successful completion.
++ *   -EINVAL      if an invalid argument was supplied.
++ *   -ENOTSUPP    if the requested configuration is not supported.
++ *   -ENOMEM      if the driver failed to allocate memory.
++ *   -EBUSY       if the mapping has already been initialized.
++ *   -EIO         if an unknown error occurred.
++ */
++int nvidia_p2p_init_mapping(u64 p2p_token,
++        struct nvidia_p2p_params *params,
++        void (*destroy_callback)(void *data),
++        void *data);
++
++/*
++ * @brief
++ *   Tear down a previously initialized third-party P2P mapping.
++ *
++ * @param[in]     p2p_token
++ *   A token that uniquely identifies the mapping.
++ *
++ * @return
++ *    0           upon successful completion.
++ *   -EINVAL      if an invalid argument was supplied.
++ *   -ENOTSUPP    if the requested configuration is not supported.
++ *   -ENOMEM      if the driver failed to allocate memory.
++ */
++int nvidia_p2p_destroy_mapping(u64 p2p_token);
++
++enum nvidia_p2p_page_size_type {
++    NVIDIA_P2P_PAGE_SIZE_4KB = 0,
++    NVIDIA_P2P_PAGE_SIZE_64KB,
++    NVIDIA_P2P_PAGE_SIZE_128KB,
++    NVIDIA_P2P_PAGE_SIZE_COUNT
++};
++
++typedef
++struct nvidia_p2p_page {
++    u64 physical_address;
++    union nvidia_p2p_request_registers {
++        struct {
++            u32 wreqmb_h;
++            u32 rreqmb_h;
++            u32 rreqmb_0;
++            u32 reserved[3];
++        } fermi;
++    } registers;
++} nvidia_p2p_page_t;
++
++#define NVIDIA_P2P_PAGE_TABLE_VERSION   0x00010002
++
++#define NVIDIA_P2P_PAGE_TABLE_VERSION_COMPATIBLE(p) \
++    NVIDIA_P2P_VERSION_COMPATIBLE(p, NVIDIA_P2P_PAGE_TABLE_VERSION)
++
++typedef
++struct nvidia_p2p_page_table {
++    u32 version;
++    u32 page_size; /* enum nvidia_p2p_page_size_type */
++    struct nvidia_p2p_page **pages;
++    u32 entries;
++    u8 *gpu_uuid;
++} nvidia_p2p_page_table_t;
++
++/*
++ * @brief
++ *   Make the pages underlying a range of GPU virtual memory
++ *   accessible to a third-party device.
++ *
++ *   This API only supports pinned, GPU-resident memory, such as that provided
++ *   by cudaMalloc().
++ *
++ *   This API may sleep.
++ *
++ * @param[in]     p2p_token
++ *   A token that uniquely identifies the P2P mapping.
++ * @param[in]     va_space
++ *   A GPU virtual address space qualifier.
++ * @param[in]     virtual_address
++ *   The start address in the specified virtual address space.
++ *   Address must be aligned to the 64KB boundary.
++ * @param[in]     length
++ *   The length of the requested P2P mapping.
++ *   Length must be a multiple of 64KB.
++ * @param[out]    page_table
++ *   A pointer to an array of structures with P2P PTEs.
++ * @param[in]     free_callback
++ *   A non-NULL pointer to the function to be invoked when the pages
++ *   underlying the virtual address range are freed
++ *   implicitly. Must be non NULL.
++ * @param[in]     data
++ *   A non-NULL opaque pointer to private data to be passed to the
++ *   callback function.
++ *
++ * @return
++ *    0           upon successful completion.
++ *   -EINVAL      if an invalid argument was supplied.
++ *   -ENOTSUPP    if the requested operation is not supported.
++ *   -ENOMEM      if the driver failed to allocate memory or if
++ *     insufficient resources were available to complete the operation.
++ *   -EIO         if an unknown error occurred.
++ */
++int nvidia_p2p_get_pages(u64 p2p_token, u32 va_space,
++        u64 virtual_address,
++        u64 length,
++        struct nvidia_p2p_page_table **page_table,
++        void (*free_callback)(void *data),
++        void *data);
++
++#define NVIDIA_P2P_DMA_MAPPING_VERSION   0x00020003
++
++#define NVIDIA_P2P_DMA_MAPPING_VERSION_COMPATIBLE(p) \
++    NVIDIA_P2P_VERSION_COMPATIBLE(p, NVIDIA_P2P_DMA_MAPPING_VERSION)
++
++struct pci_dev;
++
++typedef
++struct nvidia_p2p_dma_mapping {
++    u32 version;
++    enum nvidia_p2p_page_size_type page_size_type;
++    u32 entries;
++    u64 *dma_addresses;
++    void *private;
++    struct pci_dev *pci_dev;
++} nvidia_p2p_dma_mapping_t;
++
++/*
++ * @brief
++ *   Make the physical pages retrieved using nvidia_p2p_get_pages accessible to
++ *   a third-party device.
++ *
++ * @param[in]     peer
++ *   The struct pci_dev * of the peer device that needs to DMA to/from the
++ *   mapping.
++ * @param[in]     page_table
++ *   The page table outlining the physical pages underlying the mapping, as
++ *   retrieved with nvidia_p2p_get_pages().
++ * @param[out]    dma_mapping
++ *   The DMA mapping containing the DMA addresses to use on the third-party
++ *   device.
++ *
++ * @return
++ *    0           upon successful completion.
++ *    -EINVAL     if an invalid argument was supplied.
++ *    -ENOTSUPP   if the requested operation is not supported.
++ *    -EIO        if an unknown error occurred.
++ */
++int nvidia_p2p_dma_map_pages(struct pci_dev *peer,
++        struct nvidia_p2p_page_table *page_table,
++        struct nvidia_p2p_dma_mapping **dma_mapping);
++
++/*
++ * @brief
++ *   Unmap the physical pages previously mapped to the third-party device by
++ *   nvidia_p2p_dma_map_pages().
++ *
++ * @param[in]     peer
++ *   The struct pci_dev * of the peer device that the DMA mapping belongs to.
++ * @param[in]     page_table
++ *   The page table backing the DMA mapping to be unmapped.
++ * @param[in]     dma_mapping
++ *   The DMA mapping containing the DMA addresses used by the third-party
++ *   device, as retrieved with nvidia_p2p_dma_map_pages(). After this call
++ *   returns, neither this struct nor the addresses contained within will be
++ *   valid for use by the third-party device.
++ *
++ * @return
++ *    0           upon successful completion.
++ *    -EINVAL     if an invalid argument was supplied.
++ *    -EIO        if an unknown error occurred.
++ */
++int nvidia_p2p_dma_unmap_pages(struct pci_dev *peer,
++        struct nvidia_p2p_page_table *page_table,
++        struct nvidia_p2p_dma_mapping *dma_mapping);
++
++/*
++ * @brief
++ *   Release a set of pages previously made accessible to
++ *   a third-party device.
++ *
++ * @param[in]     p2p_token
++ *   A token that uniquely identifies the P2P mapping.
++ * @param[in]     va_space
++ *   A GPU virtual address space qualifier.
++ * @param[in]     virtual_address
++ *   The start address in the specified virtual address space.
++ * @param[in]     page_table
++ *   A pointer to the array of structures with P2P PTEs.
++ *
++ * @return
++ *    0           upon successful completion.
++ *   -EINVAL      if an invalid argument was supplied.
++ *   -EIO         if an unknown error occurred.
++ */
++int nvidia_p2p_put_pages(u64 p2p_token, u32 va_space,
++        u64 virtual_address,
++        struct nvidia_p2p_page_table *page_table);
++
++/*
++ * @brief
++ *    Free a third-party P2P page table. (This function is a no-op.)
++ *
++ * @param[in]     page_table
++ *   A pointer to the array of structures with P2P PTEs.
++ *
++ * @return
++ *    0           upon successful completion.
++ *   -EINVAL      if an invalid argument was supplied.
++ */
++int nvidia_p2p_free_page_table(struct nvidia_p2p_page_table *page_table);
++
++/*
++ * @brief
++ *   Free a third-party P2P DMA mapping. (This function is a no-op.)
++ *
++ * @param[in]     dma_mapping
++ *   A pointer to the DMA mapping structure.
++ *
++ * @return
++ *    0           upon successful completion.
++ *    -EINVAL     if an invalid argument was supplied.
++ */
++int nvidia_p2p_free_dma_mapping(struct nvidia_p2p_dma_mapping *dma_mapping);
++
++#define NVIDIA_P2P_RSYNC_DRIVER_VERSION   0x00010001
++
++#define NVIDIA_P2P_RSYNC_DRIVER_VERSION_COMPATIBLE(p) \
++    NVIDIA_P2P_VERSION_COMPATIBLE(p, NVIDIA_P2P_RSYNC_DRIVER_VERSION)
++
++typedef
++struct nvidia_p2p_rsync_driver {
++    u32 version;
++    int (*get_relaxed_ordering_mode)(int *mode, void *data);
++    void (*put_relaxed_ordering_mode)(int mode, void *data);
++    void (*wait_for_rsync)(struct pci_dev *gpu, void *data);
++} nvidia_p2p_rsync_driver_t;
++
++/*
++ * @brief
++ *   Registers the rsync driver.
++ *
++ * @param[in]     driver
++ *   A pointer to the rsync driver structure. The NVIDIA driver would use,
++ *
++ *   get_relaxed_ordering_mode to obtain a reference to the current relaxed
++ *   ordering mode (treated as a boolean) from the rsync driver.
++ *
++ *   put_relaxed_ordering_mode to release a reference to the current relaxed
++ *   ordering mode back to the rsync driver. The NVIDIA driver will call this
++ *   function once for each successful call to get_relaxed_ordering_mode, and
++ *   the relaxed ordering mode must not change until the last reference is
++ *   released.
++ *
++ *   wait_for_rsync to call into the rsync module to issue RSYNC. This callback
++ *   can't sleep or re-schedule as it may arrive under spinlocks.
++ * @param[in]     data
++ *   A pointer to the rsync driver's private data.
++ *
++ * @Returns
++ *   0            upon successful completion.
++ *   -EINVAL      parameters are incorrect.
++ *   -EBUSY       if a module is already registered or GPU devices are in use.
++ */
++int nvidia_p2p_register_rsync_driver(nvidia_p2p_rsync_driver_t *driver,
++                                     void *data);
++
++/*
++ * @brief
++ *   Unregisters the rsync driver.
++ *
++ * @param[in]     driver
++ *   A pointer to the rsync driver structure.
++ * @param[in]     data
++ *   A pointer to the rsync driver's private data.
++ */
++void nvidia_p2p_unregister_rsync_driver(nvidia_p2p_rsync_driver_t *driver,
++                                        void *data);
++
++#define NVIDIA_P2P_RSYNC_REG_INFO_VERSION   0x00020001
++
++#define NVIDIA_P2P_RSYNC_REG_INFO_VERSION_COMPATIBLE(p) \
++    NVIDIA_P2P_VERSION_COMPATIBLE(p, NVIDIA_P2P_RSYNC_REG_INFO_VERSION)
++
++typedef struct nvidia_p2p_rsync_reg {
++    void *ptr;
++    size_t size;
++    struct pci_dev *ibmnpu;
++    struct pci_dev *gpu;
++    u32 cluster_id;
++    u32 socket_id;
++} nvidia_p2p_rsync_reg_t;
++
++typedef struct nvidia_p2p_rsync_reg_info {
++    u32 version;
++    nvidia_p2p_rsync_reg_t *regs;
++    size_t entries;
++} nvidia_p2p_rsync_reg_info_t;
++
++/*
++ * @brief
++ *   Gets rsync (GEN-ID) register information associated with the supported
++ *   NPUs.
++ *
++ *   The caller would use the returned information {GPU device, NPU device,
++ *   socket-id, cluster-id} to pick the optimal generation registers to issue
++ *   RSYNC (NVLink HW flush).
++ *
++ *   The interface allocates structures to return the information, hence
++ *   nvidia_p2p_put_rsync_registers() must be called to free the structures.
++ *
++ *   Note, cluster-id is hardcoded to zero as early system configurations would
++ *   only support cluster mode i.e. all devices would share the same cluster-id
++ *   (0). In the future, appropriate kernel support would be needed to query
++ *   cluster-ids.
++ *
++ * @param[out]     reg_info
++ *   A pointer to the rsync reg info structure.
++ *
++ * @Returns
++ *   0 Upon successful completion. Otherwise, returns negative value.
++ */
++int nvidia_p2p_get_rsync_registers(nvidia_p2p_rsync_reg_info_t **reg_info);
++
++/*
++ * @brief
++ *   Frees the structures allocated by nvidia_p2p_get_rsync_registers().
++ *
++ * @param[in]     reg_info
++ *   A pointer to the rsync reg info structure.
++ */
++void nvidia_p2p_put_rsync_registers(nvidia_p2p_rsync_reg_info_t *reg_info);
++
++#endif /* _NV_P2P_H_ */
+-- 
+2.32.0
+

@@ -1,0 +1,75 @@
+From d31af7683cf95b463c13508afa38ddb9406a0237 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:52 -0700
+Subject: mm/damon/sysfs: support fixed virtual address ranges monitoring
+
+This commit makes DAMON sysfs interface to support the fixed virtual
+address ranges monitoring.  After this commit, writing 'fvaddr' to the
+'operations' DAMON sysfs file makes DAMON uses the monitoring operations
+set for fixed virtual address ranges, so that users can monitor accesses
+to only interested virtual address ranges.
+
+[sj@kernel.org: fix pid leak under fvaddr ops use case]
+  Link: https://lkml.kernel.org/r/20220503220531.45913-1-sj@kernel.org
+Link: https://lkml.kernel.org/r/20220426231750.48822-3-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/sysfs.c | 13 ++++++-------
+ 1 file changed, 6 insertions(+), 7 deletions(-)
+
+diff --git a/mm/damon/sysfs.c b/mm/damon/sysfs.c
+index 719a286d378f..f753bb405101 100644
+--- a/mm/damon/sysfs.c
++++ b/mm/damon/sysfs.c
+@@ -1694,7 +1694,7 @@ static struct kobj_type damon_sysfs_attrs_ktype = {
+ /* This should match with enum damon_ops_id */
+ static const char * const damon_sysfs_ops_strs[] = {
+ 	"vaddr",
+-	"unsupported",	/* fvaddr is not supported by sysfs yet */
++	"fvaddr",
+ 	"paddr",
+ };
+ 
+@@ -1844,9 +1844,6 @@ static ssize_t operations_store(struct kobject *kobj,
+ 
+ 	for (id = 0; id < NR_DAMON_OPS; id++) {
+ 		if (sysfs_streq(buf, damon_sysfs_ops_strs[id])) {
+-			/* fvaddr is not supported by sysfs yet */
+-			if (id == DAMON_OPS_FVADDR)
+-				return -EINVAL;
+ 			context->ops_id = id;
+ 			return count;
+ 		}
+@@ -2089,7 +2086,8 @@ static void damon_sysfs_destroy_targets(struct damon_ctx *ctx)
+ 	struct damon_target *t, *next;
+ 
+ 	damon_for_each_target_safe(t, next, ctx) {
+-		if (ctx->ops.id == DAMON_OPS_VADDR)
++		if (ctx->ops.id == DAMON_OPS_VADDR ||
++				ctx->ops.id == DAMON_OPS_FVADDR)
+ 			put_pid(t->pid);
+ 		damon_destroy_target(t);
+ 	}
+@@ -2136,7 +2134,8 @@ static int damon_sysfs_set_targets(struct damon_ctx *ctx,
+ 			damon_sysfs_destroy_targets(ctx);
+ 			return -ENOMEM;
+ 		}
+-		if (ctx->ops.id == DAMON_OPS_VADDR) {
++		if (ctx->ops.id == DAMON_OPS_VADDR ||
++				ctx->ops.id == DAMON_OPS_FVADDR) {
+ 			t->pid = find_get_pid(sys_target->pid);
+ 			if (!t->pid) {
+ 				damon_sysfs_destroy_targets(ctx);
+@@ -2206,7 +2205,7 @@ static void damon_sysfs_before_terminate(struct damon_ctx *ctx)
+ {
+ 	struct damon_target *t, *next;
+ 
+-	if (ctx->ops.id != DAMON_OPS_VADDR)
++	if (ctx->ops.id != DAMON_OPS_VADDR && ctx->ops.id != DAMON_OPS_FVADDR)
+ 		return;
+ 
+ 	mutex_lock(&ctx->kdamond_lock);
+-- 
+2.32.0
+

@@ -1,0 +1,1142 @@
+From 39d5001dbb4311a81ea2d2e31a5d01960ff013d6 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 23 Dec 2020 22:21:43 +0000
+Subject: lustre: lprocfs: work around set_fs removal
+
+The lustre procfs code has some unfortunate code that internally
+calls its procfs hooks to extract data (class_process_proc_param).
+This function uses set/get_fs to divert copy_from_user from
+user to kernel space, as called from the procfs proc_write entries.
+
+However, set/get_fs are no more, as they are ugly and hackish.
+
+Use a horrible hack to make this work again: since
+class_process_proc_param() uses a fake, local file structure
+to pass to the lustre procfs proc_write entry point. The only
+thing the code cares about in that structure is the private_data
+field, since that's where it extracts the seq_file struct from.
+
+So, abuse one of the other fields, f_op. Set it to a dummy
+file_operations structure, and have the lustre procfs proc_write
+entry points recognize this as meaning that it's dealing with
+a kernel space buffer, not user space.
+
+Pass a file pointer down to where it's needed, and code a private
+version of copy_from_user, lprocfs_copy_from_user, which takes
+a file structure so that it can figure out if it's dealing with
+kernel or user space.
+
+Yes, this is awful, but it's the easiest that can be done for
+Lustre 2.10. For Lustre 2.13, this particular set_fs use
+has been removed, but the code churn is too big to backport
+that, as lustre procfs was moved to sysfs.
+
+So, we're stuck with this for now.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../staging/lustrefsx/lustre/fid/lproc_fid.c  | 14 +--
+ .../staging/lustrefsx/lustre/fld/lproc_fld.c  |  2 +-
+ .../lustrefsx/lustre/include/lprocfs_status.h | 26 ++++--
+ .../lustrefsx/lustre/ldlm/ldlm_resource.c     |  2 +-
+ .../lustrefsx/lustre/llite/lproc_llite.c      | 72 +++++++++-------
+ .../staging/lustrefsx/lustre/lov/lproc_lov.c  |  8 +-
+ .../staging/lustrefsx/lustre/mdc/lproc_mdc.c  |  6 +-
+ .../lustre/obdclass/lprocfs_jobstats.c        |  4 +-
+ .../lustre/obdclass/lprocfs_status.c          | 85 +++++++++++++++----
+ .../lustre/obdclass/lprocfs_status_server.c   | 10 +--
+ .../lustrefsx/lustre/obdclass/obd_config.c    |  7 +-
+ .../staging/lustrefsx/lustre/osc/lproc_osc.c  | 28 +++---
+ .../lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c    | 14 +--
+ .../staging/lustrefsx/lustre/ptlrpc/nrs_crr.c |  2 +-
+ .../lustrefsx/lustre/ptlrpc/nrs_delay.c       | 10 +--
+ .../staging/lustrefsx/lustre/ptlrpc/nrs_orr.c |  6 +-
+ .../staging/lustrefsx/lustre/ptlrpc/nrs_tbf.c |  2 +-
+ 17 files changed, 187 insertions(+), 111 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c b/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
+index e504ed7ff6ce..6e5df75b37c9 100644
+--- a/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
++++ b/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
+@@ -60,8 +60,8 @@
+  * safe for production use.
+  */
+ static int
+-lprocfs_fid_write_common(const char __user *buffer, size_t count,
+-				struct lu_seq_range *range)
++lprocfs_fid_write_common(struct file *file, const char __user *buffer,
++				size_t count, struct lu_seq_range *range)
+ {
+ 	struct lu_seq_range tmp = {
+ 		.lsr_start = 0,
+@@ -74,7 +74,7 @@ lprocfs_fid_write_common(const char __user *buffer, size_t count,
+ 	if (count >= sizeof(kernbuf))
+ 		RETURN(-EINVAL);
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		RETURN(-EFAULT);
+ 
+ 	kernbuf[count] = 0;
+@@ -110,7 +110,7 @@ lprocfs_server_fid_space_seq_write(struct file *file, const char __user *buffer,
+ 	LASSERT(seq != NULL);
+ 
+ 	mutex_lock(&seq->lss_mutex);
+-	rc = lprocfs_fid_write_common(buffer, count, &seq->lss_space);
++	rc = lprocfs_fid_write_common(file, buffer, count, &seq->lss_space);
+ 	if (rc == 0) {
+ 		CDEBUG(D_INFO, "%s: Space: "DRANGE"\n",
+ 			seq->lss_name, PRANGE(&seq->lss_space));
+@@ -171,7 +171,7 @@ lprocfs_server_fid_width_seq_write(struct file *file, const char __user *buffer,
+ 
+ 	mutex_lock(&seq->lss_mutex);
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc) {
+ 		CERROR("%s: invalid FID sequence width: rc = %d\n",
+ 		       seq->lss_name, rc);
+@@ -517,7 +517,7 @@ lprocfs_client_fid_space_seq_write(struct file *file, const char __user *buffer,
+ 	LASSERT(seq != NULL);
+ 
+ 	mutex_lock(&seq->lcs_mutex);
+-	rc = lprocfs_fid_write_common(buffer, count, &seq->lcs_space);
++	rc = lprocfs_fid_write_common(file, buffer, count, &seq->lcs_space);
+ 	if (rc == 0) {
+ 		CDEBUG(D_INFO, "%s: Space: "DRANGE"\n",
+                        seq->lcs_name, PRANGE(&seq->lcs_space));
+@@ -558,7 +558,7 @@ lprocfs_client_fid_width_seq_write(struct file *file, const char __user *buffer,
+ 
+ 	mutex_lock(&seq->lcs_mutex);
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc) {
+ 		GOTO(out_unlock, count = rc);
+ 	}
+diff --git a/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c b/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
+index 8fd39ef8160b..269d8d397606 100644
+--- a/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
++++ b/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
+@@ -91,7 +91,7 @@ fld_proc_hash_seq_write(struct file *file, const char __user *buffer,
+ 	if (count > sizeof(fh_name))
+ 		return -ENAMETOOLONG;
+ 
+-	if (copy_from_user(fh_name, buffer, count) != 0)
++	if (lprocfs_copy_from_user(file, fh_name, buffer, count) != 0)
+ 		return -EFAULT;
+ 
+ 	fld = ((struct seq_file *)file->private_data)->private;
+diff --git a/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h b/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
+index 028d575e207d..6a58c7129b03 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
++++ b/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
+@@ -621,9 +621,10 @@ extern int lprocfs_filesfree_seq_show(struct seq_file *m, void *data);
+ extern int lprocfs_seq_read_frac_helper(struct seq_file *m, long val, int mult);
+ extern int lprocfs_read_frac_helper(char *buffer, unsigned long count,
+                                     long val, int mult);
+-extern int lprocfs_str_to_s64(const char __user *buffer, unsigned long count,
+-			      __s64 *val);
+-extern int lprocfs_str_with_units_to_s64(const char __user *buffer,
++extern int lprocfs_str_to_s64(struct file *, const char __user *buffer,
++			      unsigned long count, __s64 *val);
++extern int lprocfs_str_with_units_to_s64(struct file *,
++					 const char __user *buffer,
+ 					 unsigned long count, __s64 *val,
+ 					 char defunit);
+ 
+@@ -749,6 +750,19 @@ struct lustre_attr {
+ 			 const char *buf, size_t len);
+ };
+ 
++/*
++ * Hacks to get around set_fs removal.
++ */
++void lprocfs_file_set_kernel(struct file *file);
++bool lprocfs_file_is_kernel(struct file *file);
++
++/*
++ * Version of copy_from_user() that uses the above hacks to determine
++ * whether it's dealing with user or kernel space.
++ */
++unsigned long lprocfs_copy_from_user(struct file *file, void *to,
++				     const void __user *from, unsigned long n);
++
+ #define LUSTRE_ATTR(name, mode, show, store) \
+ static struct lustre_attr lustre_attr_##name = __ATTR(name, mode, show, store)
+ 
+@@ -795,9 +809,11 @@ ssize_t lprocfs_obd_max_pages_per_rpc_seq_write(struct file *file,
+ 						size_t count, loff_t *off);
+ 
+ struct root_squash_info;
+-int lprocfs_wr_root_squash(const char __user *buffer, unsigned long count,
++int lprocfs_wr_root_squash(struct file *file, const char __user *buffer,
++			   unsigned long count,
+ 			   struct root_squash_info *squash, char *name);
+-int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
++int lprocfs_wr_nosquash_nids(struct file *file, const char __user *buffer,
++			     unsigned long count,
+ 			     struct root_squash_info *squash, char *name);
+ 
+ #else /* !CONFIG_PROC_FS */
+diff --git a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
+index 2a55b2b24239..6b8734adeb85 100644
+--- a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
++++ b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
+@@ -97,7 +97,7 @@ static ssize_t seq_watermark_write(struct file *file,
+ 	bool wm_low = (data == &ldlm_reclaim_threshold_mb) ? true : false;
+ 	int rc;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &value, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count, &value, 'M');
+ 	if (rc) {
+ 		CERROR("Failed to set %s, rc = %d.\n",
+ 		       wm_low ? "lock_reclaim_threshold_mb" : "lock_limit_mb",
+diff --git a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+index 3c3f5ddc4dfa..ee696ef0a4c7 100755
+--- a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
++++ b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+@@ -50,7 +50,8 @@ struct proc_dir_entry *proc_lustre_fs_root;
+ static const struct proc_ops ll_rw_extents_stats_fops;
+ static const struct proc_ops ll_rw_extents_stats_pp_fops;
+ static const struct proc_ops ll_rw_offset_stats_fops;
+-static __s64 ll_stats_pid_write(const char __user *buf, size_t len);
++static __s64 ll_stats_pid_write(struct file *file,
++				const char __user *buf, size_t len);
+ 
+ static int ll_blksize_seq_show(struct seq_file *m, void *v)
+ {
+@@ -86,7 +87,7 @@ static ssize_t ll_stat_blksize_seq_write(struct file *file,
+ 	__s64 val;
+ 	int rc;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -248,7 +249,7 @@ static ssize_t ll_xattr_cache_seq_write(struct file *file,
+ 	__s64 val;
+ 	int rc;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -302,7 +303,8 @@ ll_max_readahead_mb_seq_write(struct file *file, const char __user *buffer,
+ 	__s64 pages_number;
+ 	int rc;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		return rc;
+ 
+@@ -350,7 +352,8 @@ ll_max_readahead_per_file_mb_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 pages_number;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		return rc;
+ 
+@@ -397,7 +400,8 @@ ll_max_read_ahead_whole_mb_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 pages_number;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		return rc;
+ 
+@@ -467,13 +471,14 @@ ll_max_cached_mb_seq_write(struct file *file, const char __user *buffer,
+ 	if (count >= sizeof(kernbuf))
+ 		RETURN(-EINVAL);
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		RETURN(-EFAULT);
+ 	kernbuf[count] = 0;
+ 
+ 	buffer += lprocfs_find_named_value(kernbuf, "max_cached_mb:", &count) -
+ 		  kernbuf;
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		RETURN(rc);
+ 
+@@ -577,7 +582,7 @@ static ssize_t ll_checksum_seq_write(struct file *file,
+ 		/* Not set up yet */
+ 		return -EAGAIN;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val)
+@@ -609,14 +614,15 @@ static int ll_rd_track_id(struct seq_file *m, enum stats_track_type type)
+ 	return 0;
+ }
+ 
+-static int ll_wr_track_id(const char __user *buffer, unsigned long count,
++static int ll_wr_track_id(struct file *file,
++			  const char __user *buffer, unsigned long count,
+ 			  void *data, enum stats_track_type type)
+ {
+ 	struct super_block *sb = data;
+ 	int rc;
+ 	__s64 pid;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &pid);
++	rc = lprocfs_str_to_s64(file, buffer, count, &pid);
+ 	if (rc)
+ 		return rc;
+ 	if (pid > INT_MAX || pid < 0)
+@@ -641,7 +647,8 @@ static ssize_t ll_track_pid_seq_write(struct file *file,
+ 				      size_t count, loff_t *off)
+ {
+ 	struct seq_file *seq = file->private_data;
+-	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_PID);
++	return ll_wr_track_id(file, buffer, count, seq->private,
++			STATS_TRACK_PID);
+ }
+ LPROC_SEQ_FOPS(ll_track_pid);
+ 
+@@ -655,7 +662,8 @@ static ssize_t ll_track_ppid_seq_write(struct file *file,
+ 				       size_t count, loff_t *off)
+ {
+ 	struct seq_file *seq = file->private_data;
+-	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_PPID);
++	return ll_wr_track_id(file, buffer, count, seq->private,
++			STATS_TRACK_PPID);
+ }
+ LPROC_SEQ_FOPS(ll_track_ppid);
+ 
+@@ -669,7 +677,8 @@ static ssize_t ll_track_gid_seq_write(struct file *file,
+ 				      size_t count, loff_t *off)
+ {
+ 	struct seq_file *seq = file->private_data;
+-	return ll_wr_track_id(buffer, count, seq->private, STATS_TRACK_GID);
++	return ll_wr_track_id(file, buffer, count, seq->private,
++			STATS_TRACK_GID);
+ }
+ LPROC_SEQ_FOPS(ll_track_gid);
+ 
+@@ -692,7 +701,7 @@ static ssize_t ll_statahead_running_max_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -726,7 +735,7 @@ static ssize_t ll_statahead_max_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -760,7 +769,7 @@ static ssize_t ll_statahead_agl_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -807,7 +816,7 @@ static ssize_t ll_lazystatfs_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -891,7 +900,7 @@ static ssize_t ll_default_easize_seq_write(struct file *file,
+ 	if (count == 0)
+ 		return 0;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > INT_MAX)
+@@ -948,7 +957,7 @@ ll_fast_read_seq_write(struct file *file, const char __user *buffer,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -981,7 +990,7 @@ static ssize_t ll_pio_seq_write(struct file *file, const char __user *buffer,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -1029,13 +1038,13 @@ static ssize_t ll_unstable_stats_seq_write(struct file *file,
+ 	if (count >= sizeof(kernbuf))
+ 		return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 	kernbuf[count] = 0;
+ 
+ 	buffer += lprocfs_find_named_value(kernbuf, "unstable_check:", &count) -
+ 		  kernbuf;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -1067,7 +1076,7 @@ static ssize_t ll_root_squash_seq_write(struct file *file,
+ 	struct ll_sb_info *sbi = ll_s2sbi(sb);
+ 	struct root_squash_info *squash = &sbi->ll_squash;
+ 
+-	return lprocfs_wr_root_squash(buffer, count, squash,
++	return lprocfs_wr_root_squash(file, buffer, count, squash,
+ 				      ll_get_fsname(sb, NULL, 0));
+ }
+ LPROC_SEQ_FOPS(ll_root_squash);
+@@ -1103,7 +1112,7 @@ static ssize_t ll_nosquash_nids_seq_write(struct file *file,
+ 	struct root_squash_info *squash = &sbi->ll_squash;
+ 	int rc;
+ 
+-	rc = lprocfs_wr_nosquash_nids(buffer, count, squash,
++	rc = lprocfs_wr_nosquash_nids(file, buffer, count, squash,
+ 				      ll_get_fsname(sb, NULL, 0));
+ 	if (rc < 0)
+ 		return rc;
+@@ -1525,7 +1534,7 @@ static ssize_t ll_rw_extents_stats_pp_seq_write(struct file *file,
+ 	if (len == 0)
+ 		return -EINVAL;
+ 
+-	value = ll_stats_pid_write(buf, len);
++	value = ll_stats_pid_write(file, buf, len);
+ 
+ 	if (value == 0)
+ 		sbi->ll_rw_stats_on = 0;
+@@ -1583,7 +1592,7 @@ static ssize_t ll_rw_extents_stats_seq_write(struct file *file,
+ 	if (len == 0)
+ 		return -EINVAL;
+ 
+-	value = ll_stats_pid_write(buf, len);
++	value = ll_stats_pid_write(file, buf, len);
+ 
+ 	if (value == 0)
+ 		sbi->ll_rw_stats_on = 0;
+@@ -1772,7 +1781,7 @@ static ssize_t ll_rw_offset_stats_seq_write(struct file *file,
+ 	if (len == 0)
+ 		return -EINVAL;
+ 
+-	value = ll_stats_pid_write(buf, len);
++	value = ll_stats_pid_write(file, buf, len);
+ 
+ 	if (value == 0)
+ 		sbi->ll_rw_stats_on = 0;
+@@ -1804,17 +1813,18 @@ static ssize_t ll_rw_offset_stats_seq_write(struct file *file,
+  * equivalent of a number is written, that number is returned. Otherwise,
+  * 1 is returned. Non-zero return values indicate collection should be enabled.
+  */
+-static __s64 ll_stats_pid_write(const char __user *buf, size_t len)
++static __s64 ll_stats_pid_write(struct file *file, const char __user *buf,
++				size_t len)
+ {
+ 	__s64 value = 1;
+ 	int rc;
+ 	char kernbuf[16];
+ 
+-	rc = lprocfs_str_to_s64(buf, len, &value);
++	rc = lprocfs_str_to_s64(file, buf, len, &value);
+ 
+ 	if (rc < 0 && len < sizeof(kernbuf)) {
+ 
+-		if (copy_from_user(kernbuf, buf, len))
++		if (lprocfs_copy_from_user(file, kernbuf, buf, len))
+ 			return -EFAULT;
+ 		kernbuf[len] = 0;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c b/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
+index 8610727f9b9e..e8b9b8830205 100644
+--- a/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
++++ b/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
+@@ -62,7 +62,7 @@ static ssize_t lov_stripesize_seq_write(struct file *file,
+ 
+ 	LASSERT(dev != NULL);
+ 	desc = &dev->u.lov.desc;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0)
+@@ -97,7 +97,7 @@ static ssize_t lov_stripeoffset_seq_write(struct file *file,
+ 
+ 	LASSERT(dev != NULL);
+ 	desc = &dev->u.lov.desc;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < -1)
+@@ -131,7 +131,7 @@ static ssize_t lov_stripetype_seq_write(struct file *file,
+ 
+ 	LASSERT(dev != NULL);
+ 	desc = &dev->u.lov.desc;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < INT_MIN || val > INT_MAX)
+@@ -169,7 +169,7 @@ static ssize_t lov_stripecount_seq_write(struct file *file,
+ 
+ 	LASSERT(dev != NULL);
+ 	desc = &dev->u.lov.desc;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < -1)
+diff --git a/drivers/staging/lustrefsx/lustre/mdc/lproc_mdc.c b/drivers/staging/lustrefsx/lustre/mdc/lproc_mdc.c
+index 2ede98f67846..57cd67913895 100644
+--- a/drivers/staging/lustrefsx/lustre/mdc/lproc_mdc.c
++++ b/drivers/staging/lustrefsx/lustre/mdc/lproc_mdc.c
+@@ -58,7 +58,7 @@ static ssize_t mdc_active_seq_write(struct file *file,
+ 	__s64 val;
+ 
+ 	dev = ((struct seq_file *)file->private_data)->private;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > 1)
+@@ -95,7 +95,7 @@ static ssize_t mdc_max_rpcs_in_flight_seq_write(struct file *file,
+ 	int rc;
+ 
+ 	dev = ((struct seq_file *)file->private_data)->private;
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -130,7 +130,7 @@ static ssize_t mdc_max_mod_rpcs_in_flight_seq_write(struct file *file,
+ 	__s64 val;
+ 	int rc;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
+index 74351918dc5b..a78e4e7f6b31 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
+@@ -515,7 +515,7 @@ static ssize_t lprocfs_jobstats_seq_write(struct file *file,
+ 	if (stats->ojs_hash == NULL)
+ 		return -ENODEV;
+ 
+-	if (copy_from_user(jobid, buf, len))
++	if (lprocfs_copy_from_user(file, jobid, buf, len))
+ 		return -EFAULT;
+ 	jobid[len] = 0;
+ 
+@@ -655,7 +655,7 @@ lprocfs_job_interval_seq_write(struct file *file, const char __user *buffer,
+ 
+ 	stats = &obd->u.obt.obt_jobstats;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > UINT_MAX)
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+index 07801fa617a9..0fcf859bdbb0 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+@@ -48,6 +48,43 @@ MODULE_PARM_DESC(lprocfs_no_percpu_stats, "Do not alloc percpu data for lprocfs
+ 
+ #define MAX_STRING_SIZE 128
+ 
++static const struct file_operations lprocfs_kernel_dummy = {};
++
++/*
++ * Awful hacks to mark procfs seq writes as going to kernel space. Used
++ * to be done with set_fs(KERNEL_DS), but that function is no more.
++ * This should only be called from class_process_proc_param(), which passes
++ * in a fake file structure. It should never, ever be used for anything else.
++ */
++void lprocfs_file_set_kernel(struct file *file)
++{
++	LASSERT(file->f_op == NULL);
++	file->f_op = &lprocfs_kernel_dummy;
++}
++EXPORT_SYMBOL(lprocfs_file_set_kernel);
++
++bool lprocfs_file_is_kernel(struct file *file)
++{
++	return (file->f_op == &lprocfs_kernel_dummy);
++}
++EXPORT_SYMBOL(lprocfs_file_is_kernel);
++
++unsigned long
++lprocfs_copy_from_user(struct file *file, void *to,
++		       const void __user *from, unsigned long n)
++{
++	unsigned long res;
++
++	if (lprocfs_file_is_kernel(file)) {
++		memcpy(to, from, n);
++		res = 0;
++	} else
++		res = copy_from_user(to, from, n);
++
++	return res;
++}
++EXPORT_SYMBOL(lprocfs_copy_from_user);
++
+ int lprocfs_single_release(struct inode *inode, struct file *file)
+ {
+         return single_release(inode, file);
+@@ -370,7 +407,7 @@ int lprocfs_wr_uint(struct file *file, const char __user *buffer,
+ 	if (count == 0)
+ 		return 0;
+ 
+-	if (copy_from_user(dummy, buffer, count))
++	if (lprocfs_copy_from_user(file, dummy, buffer, count))
+ 		return -EFAULT;
+ 
+ 	dummy[count] = 0;
+@@ -391,7 +428,7 @@ ssize_t lprocfs_uint_seq_write(struct file *file, const char __user *buffer,
+ 	int rc;
+ 	__s64 val = 0;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -424,7 +461,7 @@ lprocfs_atomic_seq_write(struct file *file, const char __user *buffer,
+ 	__s64 val = 0;
+ 	int rc;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -2051,7 +2088,8 @@ static int str_to_u64_parse(char *buffer, unsigned long count,
+  * of the signed integer.
+  */
+ static int str_to_s64_internal(const char __user *buffer, unsigned long count,
+-			       __s64 *val, __u64 def_mult, bool allow_units)
++			       __s64 *val, __u64 def_mult, bool allow_units,
++			       bool kernel_space)
+ {
+ 	char kernbuf[22];
+ 	__u64 tmp;
+@@ -2063,8 +2101,12 @@ static int str_to_s64_internal(const char __user *buffer, unsigned long count,
+ 	if (count > (sizeof(kernbuf) - 1))
+ 		return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
+-		return -EFAULT;
++	if (kernel_space) {
++		memcpy(kernbuf, buffer, count);
++	} else {
++		if (copy_from_user(kernbuf, buffer, count))
++			return -EFAULT;
++	}
+ 
+ 	kernbuf[count] = '\0';
+ 
+@@ -2103,10 +2145,13 @@ static int str_to_s64_internal(const char __user *buffer, unsigned long count,
+  * \retval		0 on success
+  * \retval		negative number on error
+  */
+-int lprocfs_str_to_s64(const char __user *buffer, unsigned long count,
+-		       __s64 *val)
++int lprocfs_str_to_s64(struct file *file, const char __user *buffer,
++		       unsigned long count, __s64 *val)
+ {
+-	return str_to_s64_internal(buffer, count, val, 1, false);
++	bool kernel_space;
++
++	kernel_space = lprocfs_file_is_kernel(file);
++	return str_to_s64_internal(buffer, count, val, 1, false, kernel_space);
+ }
+ EXPORT_SYMBOL(lprocfs_str_to_s64);
+ 
+@@ -2127,11 +2172,12 @@ EXPORT_SYMBOL(lprocfs_str_to_s64);
+  * \retval		0 on success
+  * \retval		negative number on error
+  */
+-int lprocfs_str_with_units_to_s64(const char __user *buffer,
++int lprocfs_str_with_units_to_s64(struct file *file, const char __user *buffer,
+ 				  unsigned long count, __s64 *val, char defunit)
+ {
+ 	__u64 mult = 1;
+ 	int rc;
++	bool kernel_space;
+ 
+ 	if (defunit != '1') {
+ 		rc = get_mult(defunit, &mult);
+@@ -2139,7 +2185,10 @@ int lprocfs_str_with_units_to_s64(const char __user *buffer,
+ 			return rc;
+ 	}
+ 
+-	return str_to_s64_internal(buffer, count, val, mult, true);
++	kernel_space = lprocfs_file_is_kernel(file);
++
++	return str_to_s64_internal(buffer, count, val, mult, true,
++			kernel_space);
+ }
+ EXPORT_SYMBOL(lprocfs_str_with_units_to_s64);
+ 
+@@ -2326,7 +2375,7 @@ ssize_t lprocfs_obd_max_pages_per_rpc_seq_write(struct file *file,
+ 	int chunk_mask, rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, '1');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count, &val, '1');
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0)
+@@ -2356,8 +2405,9 @@ ssize_t lprocfs_obd_max_pages_per_rpc_seq_write(struct file *file,
+ }
+ EXPORT_SYMBOL(lprocfs_obd_max_pages_per_rpc_seq_write);
+ 
+-int lprocfs_wr_root_squash(const char __user *buffer, unsigned long count,
+-			   struct root_squash_info *squash, char *name)
++int lprocfs_wr_root_squash(struct file *file, const char __user *buffer,
++			   unsigned long count, struct root_squash_info *squash,
++			   char *name)
+ {
+ 	int rc;
+ 	char kernbuf[64], *tmp, *errmsg;
+@@ -2368,7 +2418,7 @@ int lprocfs_wr_root_squash(const char __user *buffer, unsigned long count,
+ 		errmsg = "string too long";
+ 		GOTO(failed_noprint, rc = -EINVAL);
+ 	}
+-	if (copy_from_user(kernbuf, buffer, count)) {
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count)) {
+ 		errmsg = "bad address";
+ 		GOTO(failed_noprint, rc = -EFAULT);
+ 	}
+@@ -2418,7 +2468,8 @@ int lprocfs_wr_root_squash(const char __user *buffer, unsigned long count,
+ EXPORT_SYMBOL(lprocfs_wr_root_squash);
+ 
+ 
+-int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
++int lprocfs_wr_nosquash_nids(struct file *file, const char __user *buffer,
++			     unsigned long count,
+ 			     struct root_squash_info *squash, char *name)
+ {
+ 	int rc;
+@@ -2438,7 +2489,7 @@ int lprocfs_wr_nosquash_nids(const char __user *buffer, unsigned long count,
+ 		errmsg = "no memory";
+ 		GOTO(failed, rc = -ENOMEM);
+ 	}
+-	if (copy_from_user(kernbuf, buffer, count)) {
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count)) {
+ 		errmsg = "bad address";
+ 		GOTO(failed, rc = -EFAULT);
+ 	}
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status_server.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status_server.c
+index 46ad92df952f..6d78831dd37f 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status_server.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status_server.c
+@@ -79,7 +79,7 @@ lprocfs_evict_client_seq_write(struct file *file, const char __user *buffer,
+ 	 * bytes into kbuf, to ensure that the string is NUL-terminated.
+ 	 * UUID_MAX should include a trailing NUL already.
+ 	 */
+-	if (copy_from_user(kbuf, buffer,
++	if (lprocfs_copy_from_user(file, kbuf, buffer,
+ 			   min_t(unsigned long, BUFLEN - 1, count))) {
+ 		count = -EFAULT;
+ 		goto out;
+@@ -683,7 +683,7 @@ lprocfs_ir_factor_seq_write(struct file *file, const char __user *buffer,
+ 	__s64 val;
+ 
+ 	LASSERT(obd != NULL);
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -715,7 +715,7 @@ lprocfs_checksum_dump_seq_write(struct file *file, const char __user *buffer,
+ 	__s64 val;
+ 
+ 	LASSERT(obd != NULL);
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -745,7 +745,7 @@ lprocfs_recovery_time_soft_seq_write(struct file *file,
+ 	__s64 val;
+ 
+ 	LASSERT(obd != NULL);
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > INT_MAX)
+@@ -777,7 +777,7 @@ lprocfs_recovery_time_hard_seq_write(struct file *file,
+ 	__s64 val;
+ 
+ 	LASSERT(obd != NULL);
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > INT_MAX)
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+index 8182d872a8ce..dbd4fdcbd996 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+@@ -1290,7 +1290,7 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
+ 			     struct lustre_cfg *lcfg, void *data)
+ {
+ 	struct lprocfs_vars *var;
+-	struct file fakefile;
++	struct file fakefile = {};
+ 	struct seq_file fake_seqfile;
+ 	char *key, *sval;
+ 	int i, keylen, vallen;
+@@ -1305,6 +1305,7 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
+ 	}
+ 
+ 	/* fake a seq file so that var->fops->proc_write can work... */
++	lprocfs_file_set_kernel(&fakefile);
+ 	fakefile.private_data = &fake_seqfile;
+ 	fake_seqfile.private = data;
+ 	/* e.g. tunefs.lustre --param mdt.group_upcall=foo /r/tmp/lustre-mdt
+@@ -1339,13 +1340,9 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
+ 				rc = -EROFS;
+ 
+ 				if (var->fops && var->fops->proc_write) {
+-					mm_segment_t oldfs;
+-					oldfs = get_fs();
+-					set_fs(KERNEL_DS);
+ 					rc = (var->fops->proc_write)(&fakefile,
+ 								sval, vallen,
+ 								NULL);
+-					set_fs(oldfs);
+ 				}
+ 				break;
+ 			}
+diff --git a/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c b/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
+index 5c9a8c6c2219..d6123c61af11 100644
+--- a/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
++++ b/drivers/staging/lustrefsx/lustre/osc/lproc_osc.c
+@@ -58,7 +58,7 @@ static ssize_t osc_active_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > 1)
+@@ -96,7 +96,7 @@ static ssize_t osc_max_rpcs_in_flight_seq_write(struct file *file,
+ 	int adding, added, req_count;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 1 || val > OSC_MAX_RIF_MAX)
+@@ -152,7 +152,8 @@ static ssize_t osc_max_dirty_mb_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 pages_number;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		return rc;
+ 
+@@ -203,13 +204,14 @@ osc_cached_mb_seq_write(struct file *file, const char __user *buffer,
+ 	if (count >= sizeof(kernbuf))
+ 		return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 	kernbuf[count] = 0;
+ 
+ 	buffer += lprocfs_find_named_value(kernbuf, "used_mb:", &count) -
+ 		  kernbuf;
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &pages_number, 'M');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count,
++			&pages_number, 'M');
+ 	if (rc)
+ 		return rc;
+ 
+@@ -269,7 +271,7 @@ static ssize_t osc_cur_grant_bytes_seq_write(struct file *file,
+ 	if (obd == NULL)
+ 		return 0;
+ 
+-	rc = lprocfs_str_with_units_to_s64(buffer, count, &val, '1');
++	rc = lprocfs_str_with_units_to_s64(file, buffer, count, &val, '1');
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0)
+@@ -340,7 +342,7 @@ static ssize_t osc_grant_shrink_interval_seq_write(struct file *file,
+ 	if (obd == NULL)
+ 		return 0;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -375,7 +377,7 @@ static ssize_t osc_checksum_seq_write(struct file *file,
+ 	if (obd == NULL)
+ 		return 0;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -420,7 +422,7 @@ static ssize_t osc_checksum_type_seq_write(struct file *file,
+ 
+         if (count > sizeof(kernbuf) - 1)
+                 return -EINVAL;
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+                 return -EFAULT;
+         if (count > 0 && kernbuf[count - 1] == '\n')
+                 kernbuf[count - 1] = '\0';
+@@ -455,7 +457,7 @@ static ssize_t osc_resend_count_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -491,7 +493,7 @@ static ssize_t osc_checksum_dump_seq_write(struct file *file,
+ 	if (obd == NULL)
+ 		return 0;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 
+@@ -519,7 +521,7 @@ static ssize_t osc_contention_seconds_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0 || val > INT_MAX)
+@@ -549,7 +551,7 @@ static ssize_t osc_lockless_truncate_seq_write(struct file *file,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc)
+ 		return rc;
+ 	if (val < 0)
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+index e13b9e2e4c8f..5b5412e50631 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+@@ -309,7 +309,7 @@ ptlrpc_lprocfs_req_history_max_seq_write(struct file *file,
+ 	__s64 val;
+ 	int rc;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -356,7 +356,7 @@ ptlrpc_lprocfs_threads_min_seq_write(struct file *file,
+ 	struct seq_file *m = file->private_data;
+ 	struct ptlrpc_service *svc = m->private;
+ 	__s64 val;
+-	int rc = lprocfs_str_to_s64(buffer, count, &val);
++	int rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 
+ 	if (rc < 0)
+ 		return rc;
+@@ -412,7 +412,7 @@ ptlrpc_lprocfs_threads_max_seq_write(struct file *file,
+ 	struct seq_file *m = file->private_data;
+ 	struct ptlrpc_service *svc = m->private;
+ 	__s64 val;
+-	int rc = lprocfs_str_to_s64(buffer, count, &val);
++	int rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 
+ 	if (rc < 0)
+ 		return rc;
+@@ -692,7 +692,7 @@ ptlrpc_lprocfs_nrs_seq_write(struct file *file, const char __user *buffer,
+ 	 */
+ 	cmd_copy = cmd;
+ 
+-	if (copy_from_user(cmd, buffer, count))
++	if (lprocfs_copy_from_user(file, cmd, buffer, count))
+ 		GOTO(out, rc = -EFAULT);
+ 
+ 	cmd[count] = '\0';
+@@ -1084,7 +1084,7 @@ ptlrpc_lprocfs_hp_ratio_seq_write(struct file *file, const char __user *buffer,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+@@ -1278,7 +1278,7 @@ lprocfs_import_seq_write(struct file *file, const char __user *buffer,
+ 	if (kbuf == NULL)
+ 		return -ENOMEM;
+ 
+-	if (copy_from_user(kbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kbuf, buffer, count))
+ 		GOTO(out, count = -EFAULT);
+ 
+ 	kbuf[count] = 0;
+@@ -1344,7 +1344,7 @@ lprocfs_pinger_recov_seq_write(struct file *file, const char __user *buffer,
+ 	int rc;
+ 	__s64 val;
+ 
+-	rc = lprocfs_str_to_s64(buffer, count, &val);
++	rc = lprocfs_str_to_s64(file, buffer, count, &val);
+ 	if (rc < 0)
+ 		return rc;
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_crr.c b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_crr.c
+index 6a54fa0f775a..7423e981d9e3 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_crr.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_crr.c
+@@ -718,7 +718,7 @@ ptlrpc_lprocfs_nrs_crrn_quantum_seq_write(struct file *file,
+         if (count > (sizeof(kernbuf) - 1))
+                 return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 
+         kernbuf[count] = '\0';
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_delay.c b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_delay.c
+index 77da1c1bfacf..403b74efe641 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_delay.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_delay.c
+@@ -419,7 +419,7 @@ static int nrs_delay_ctl(struct ptlrpc_nrs_policy *policy,
+  * Helper for delay's seq_write functions.
+  */
+ static ssize_t
+-lprocfs_nrs_delay_seq_write_common(const char __user *buffer,
++lprocfs_nrs_delay_seq_write_common(struct file *file, const char __user *buffer,
+ 				   unsigned int bufsize, size_t count,
+ 				   const char *var_name, unsigned int min_val,
+ 				   unsigned int max_val,
+@@ -443,7 +443,7 @@ lprocfs_nrs_delay_seq_write_common(const char __user *buffer,
+ 	if (kernbuf == NULL)
+ 		return -ENOMEM;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		GOTO(free_kernbuf, rc = -EFAULT);
+ 
+ 	tmpsize = strlen("reg_") + strlen(var_name) + 1;
+@@ -598,7 +598,7 @@ ptlrpc_lprocfs_nrs_delay_min_seq_write(struct file *file,
+ 	struct seq_file *m = file->private_data;
+ 	struct ptlrpc_service *svc = m->private;
+ 
+-	return lprocfs_nrs_delay_seq_write_common(buffer,
++	return lprocfs_nrs_delay_seq_write_common(file, buffer,
+ 						  LPROCFS_NRS_DELAY_MIN_SIZE,
+ 						  count,
+ 						  LPROCFS_NRS_DELAY_MIN_NAME,
+@@ -681,7 +681,7 @@ ptlrpc_lprocfs_nrs_delay_max_seq_write(struct file *file,
+ 	struct seq_file *m = file->private_data;
+ 	struct ptlrpc_service *svc = m->private;
+ 
+-	return lprocfs_nrs_delay_seq_write_common(buffer,
++	return lprocfs_nrs_delay_seq_write_common(file, buffer,
+ 						  LPROCFS_NRS_DELAY_MAX_SIZE,
+ 						  count,
+ 						  LPROCFS_NRS_DELAY_MAX_NAME,
+@@ -765,7 +765,7 @@ ptlrpc_lprocfs_nrs_delay_pct_seq_write(struct file *file,
+ 	struct seq_file *m = file->private_data;
+ 	struct ptlrpc_service *svc = m->private;
+ 
+-	return lprocfs_nrs_delay_seq_write_common(buffer,
++	return lprocfs_nrs_delay_seq_write_common(file, buffer,
+ 						  LPROCFS_NRS_DELAY_PCT_SIZE,
+ 						  count,
+ 						  LPROCFS_NRS_DELAY_PCT_NAME,
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_orr.c b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_orr.c
+index 857b333a50b0..96c3a6593d2d 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_orr.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_orr.c
+@@ -1297,7 +1297,7 @@ ptlrpc_lprocfs_nrs_orr_quantum_seq_write(struct file *file,
+         if (count > (sizeof(kernbuf) - 1))
+                 return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 
+         kernbuf[count] = '\0';
+@@ -1512,7 +1512,7 @@ ptlrpc_lprocfs_nrs_orr_offset_type_seq_write(struct file *file,
+         if (count > (sizeof(kernbuf) - 1))
+                 return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 
+         kernbuf[count] = '\0';
+@@ -1772,7 +1772,7 @@ ptlrpc_lprocfs_nrs_orr_supported_seq_write(struct file *file,
+         if (count > (sizeof(kernbuf) - 1))
+                 return -EINVAL;
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		return -EFAULT;
+ 
+         kernbuf[count] = '\0';
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_tbf.c b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_tbf.c
+index 6a042feb143e..a81485554013 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_tbf.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/nrs_tbf.c
+@@ -2965,7 +2965,7 @@ ptlrpc_lprocfs_nrs_tbf_rule_seq_write(struct file *file,
+ 	if (count > LPROCFS_WR_NRS_TBF_MAX_CMD - 1)
+ 		GOTO(out_free_kernbuff, rc = -EINVAL);
+ 
+-	if (copy_from_user(kernbuf, buffer, count))
++	if (lprocfs_copy_from_user(file, kernbuf, buffer, count))
+ 		GOTO(out_free_kernbuff, rc = -EFAULT);
+ 
+ 	val = kernbuf;
+-- 
+2.32.0
+

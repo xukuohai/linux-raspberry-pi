@@ -1,0 +1,44 @@
+From b13a2250bf826b55a64a61d03fc5fe361b8816c5 Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 21 Jan 2021 15:29:31 -0600
+Subject: x86/ftrace: Support objtool vmlinux.o validation in ftrace_64.S
+
+With objtool vmlinux.o validation of return_to_handler(), now that
+objtool has visibility inside the retpoline, jumping from EMPTY state to
+a proper function state results in a stack state mismatch.
+
+return_to_handler() is actually quite normal despite the underlying
+magic.  Just annotate it as a normal function.
+
+Acked-by: Steven Rostedt (VMware) <rostedt@goodmis.org>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Link: https://lore.kernel.org/r/14f48e623f61dbdcd84cf27a56ed8ccae73199ef.1611263462.git.jpoimboe@redhat.com
+(cherry picked from commit 7cae4b1cf1cc42f490422e20662169e8656c915a)
+---
+ arch/x86/kernel/ftrace_64.S | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/kernel/ftrace_64.S b/arch/x86/kernel/ftrace_64.S
+index 5b2dabedcf66..b3b7ecbed0a3 100644
+--- a/arch/x86/kernel/ftrace_64.S
++++ b/arch/x86/kernel/ftrace_64.S
+@@ -322,8 +322,7 @@ SYM_FUNC_START(ftrace_graph_caller)
+ 	RET
+ SYM_FUNC_END(ftrace_graph_caller)
+ 
+-SYM_CODE_START(return_to_handler)
+-	UNWIND_HINT_EMPTY
++SYM_FUNC_START(return_to_handler)
+ 	subq  $16, %rsp
+ 
+ 	/* Save the return values */
+@@ -350,5 +349,5 @@ SYM_CODE_START(return_to_handler)
+ 	mov %rdi, (%rsp)
+ 	UNWIND_HINT_FUNC
+ 	RET
+-SYM_CODE_END(return_to_handler)
++SYM_FUNC_END(return_to_handler)
+ #endif
+-- 
+2.32.0
+

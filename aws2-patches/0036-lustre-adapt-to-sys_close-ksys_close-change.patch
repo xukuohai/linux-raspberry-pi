@@ -1,0 +1,36 @@
+From 639b5226e55c19b542e5a1143195bf9191461eda Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 4 Mar 2019 22:39:51 +0000
+Subject: lustre: adapt to sys_close -> ksys_close change
+
+Linux >= 4.17 uses a ksys_close wrapper instead of sys_close for
+in-kernel fd close calls. Make the code work with kernels before
+and after this change.
+
+Linux commit: 2ca2a09d6215 ("fs: add ksys_close() wrapper; remove
+in-kernel calls to sys_close()")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lnet/lnet/lib-socket.c | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+index a0fcec9d8a44..a1b2b327a384 100644
+--- a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
++++ b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+@@ -100,7 +100,11 @@ lnet_sock_ioctl(int cmd, unsigned long arg)
+ 	fput(sock_filp);
+ out:
+ 	if (fd >= 0)
++#ifdef HAVE_KSYS_CLOSE
++		ksys_close(fd);
++#else
+ 		sys_close(fd);
++#endif
+ 	return rc;
+ }
+ 
+-- 
+2.32.0
+

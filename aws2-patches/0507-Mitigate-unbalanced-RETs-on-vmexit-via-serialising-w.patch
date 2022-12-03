@@ -1,0 +1,56 @@
+From f1a6ce510f26cb8f83fa0ea3eaaf0f89aa07eaa8 Mon Sep 17 00:00:00 2001
+From: Suraj Jitindar Singh <surajjs@amazon.com>
+Date: Fri, 5 Aug 2022 14:53:06 -0700
+Subject: Mitigate unbalanced RETs on vmexit via serialising wrmsr
+
+The primary mitigation for "unbalanced" RETs causing guest-directed
+speculation on processors using eIBRS is the call;int3 sequence below:
+
+	call 1f
+	int3
+	1:
+	lea 0x8(%rsp), %rsp
+	lfence
+
+The int3 instruction acts as a speculation barrier, and lfence prevents
+execution of the next RET until that call has retired.
+
+However wrmsr is also a speculation barrier and can be used in place of
+int3. If we ensure that a serialising write (via wrmsr) occurs within a
+balanced call/ret, followed by an lfence, this also works as a
+mitigation.
+
+To do this always perform a wrmsr if SPEC_CTRL_IBRS is set in
+vmx_spec_ctrl_restore_host(). The call to native_wrmsrl() to perform the
+write, followed by lfence within barrier_nospec(), completes the
+sequence.
+
+In general benchmarks this appears to have a significantly lower
+performance impact compared to the call;int3 sequence.
+
+Signed-off-by: Samuel Mendoza-Jonas <samjonas@amazon.com>
+---
+ arch/x86/kvm/vmx/vmx.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/vmx/vmx.c b/arch/x86/kvm/vmx/vmx.c
+index 1609804268b3..d9d6a20a2dae 100644
+--- a/arch/x86/kvm/vmx/vmx.c
++++ b/arch/x86/kvm/vmx/vmx.c
+@@ -6714,9 +6714,12 @@ void noinstr vmx_spec_ctrl_restore_host(struct vcpu_vmx *vmx,
+ 	 * For legacy IBRS, the IBRS bit always needs to be written after
+ 	 * transitioning from a less privileged predictor mode, regardless of
+ 	 * whether the guest/host values differ.
++	 *
++	 * For eIBRS affected by Post Barrier RSB Predictions a serialising
++	 * instruction (wrmsr) must be executed.
+ 	 */
+ 	if (cpu_feature_enabled(X86_FEATURE_KERNEL_IBRS) ||
+-	    vmx->spec_ctrl != hostval)
++	    vmx->spec_ctrl != hostval || (hostval & SPEC_CTRL_IBRS))
+ 		native_wrmsrl(MSR_IA32_SPEC_CTRL, hostval);
+ 
+ 	barrier_nospec();
+-- 
+2.32.0
+

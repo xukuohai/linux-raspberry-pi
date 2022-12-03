@@ -1,0 +1,56 @@
+From 8622a9806176b98534ec7d54347d8838f6205ab1 Mon Sep 17 00:00:00 2001
+From: Ilias Stamatis <ilstam@amazon.com>
+Date: Wed, 26 May 2021 19:44:12 +0100
+Subject: KVM: nVMX: Add a TSC multiplier field in VMCS12
+
+This is required for supporting nested TSC scaling.
+
+Note: Backported to 5.10
+
+Signed-off-by: Ilias Stamatis <ilstam@amazon.com>
+Reviewed-by: Jim Mattson <jmattson@google.com>
+Reviewed-by: Maxim Levitsky <mlevitsk@redhat.com>
+Message-Id: <20210526184418.28881-6-ilstam@amazon.com>
+Signed-off-by: Paolo Bonzini <pbonzini@redhat.com>
+---
+ arch/x86/kvm/vmx/vmcs12.c | 1 +
+ arch/x86/kvm/vmx/vmcs12.h | 4 +++-
+ 2 files changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/vmx/vmcs12.c b/arch/x86/kvm/vmx/vmcs12.c
+index c8e51c004f78..989e867e4056 100644
+--- a/arch/x86/kvm/vmx/vmcs12.c
++++ b/arch/x86/kvm/vmx/vmcs12.c
+@@ -37,6 +37,7 @@ const unsigned short vmcs_field_to_offset_table[] = {
+ 	FIELD64(VM_ENTRY_MSR_LOAD_ADDR, vm_entry_msr_load_addr),
+ 	FIELD64(PML_ADDRESS, pml_address),
+ 	FIELD64(TSC_OFFSET, tsc_offset),
++	FIELD64(TSC_MULTIPLIER, tsc_multiplier),
+ 	FIELD64(VIRTUAL_APIC_PAGE_ADDR, virtual_apic_page_addr),
+ 	FIELD64(APIC_ACCESS_ADDR, apic_access_addr),
+ 	FIELD64(POSTED_INTR_DESC_ADDR, posted_intr_desc_addr),
+diff --git a/arch/x86/kvm/vmx/vmcs12.h b/arch/x86/kvm/vmx/vmcs12.h
+index 80232daf00ff..2bfb9a4466b4 100644
+--- a/arch/x86/kvm/vmx/vmcs12.h
++++ b/arch/x86/kvm/vmx/vmcs12.h
+@@ -69,7 +69,8 @@ struct __packed vmcs12 {
+ 	u64 vm_function_control;
+ 	u64 eptp_list_address;
+ 	u64 pml_address;
+-	u64 padding64[3]; /* room for future expansion */
++	u64 tsc_multiplier;
++	u64 padding64[2]; /* room for future expansion */
+ 	/*
+ 	 * To allow migration of L1 (complete with its L2 guests) between
+ 	 * machines of different natural widths (32 or 64 bit), we cannot have
+@@ -256,6 +257,7 @@ static inline void vmx_check_vmcs12_offsets(void)
+ 	CHECK_OFFSET(vm_function_control, 296);
+ 	CHECK_OFFSET(eptp_list_address, 304);
+ 	CHECK_OFFSET(pml_address, 312);
++	CHECK_OFFSET(tsc_multiplier, 320);
+ 	CHECK_OFFSET(cr0_guest_host_mask, 344);
+ 	CHECK_OFFSET(cr4_guest_host_mask, 352);
+ 	CHECK_OFFSET(cr0_read_shadow, 360);
+-- 
+2.32.0
+

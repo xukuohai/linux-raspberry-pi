@@ -1,0 +1,28 @@
+From 07af806f9cd0508d6c7b161077ad7595f05fbe14 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Tue, 31 Mar 2020 12:34:17 +0100
+Subject: arm64: kgdb: Mark code following kgdb brk as reachable
+
+In the general use case, KGDB breakpoint handler should return normally
+to the instruction following the brk.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/include/asm/kgdb.h | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/arch/arm64/include/asm/kgdb.h b/arch/arm64/include/asm/kgdb.h
+index 21fc85e9d2be..a8cb91d8d59b 100644
+--- a/arch/arm64/include/asm/kgdb.h
++++ b/arch/arm64/include/asm/kgdb.h
+@@ -19,6 +19,7 @@
+ static inline void arch_kgdb_breakpoint(void)
+ {
+ 	asm ("brk %0" : : "I" (KGDB_COMPILED_DBG_BRK_IMM));
++	annotate_reachable();
+ }
+ 
+ extern void kgdb_handle_bus_error(void);
+-- 
+2.32.0
+

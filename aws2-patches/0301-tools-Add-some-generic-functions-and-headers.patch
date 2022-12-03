@@ -1,0 +1,117 @@
+From 5c56486c17a6d1b54f84649af3a73ad1da178a69 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Sat, 15 Feb 2020 09:26:26 +0000
+Subject: tools: Add some generic functions and headers
+
+These will be needed to be able to use arm64 instruction decoder in
+userland tools.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/include/asm-generic/bitops/__ffs.h | 11 +++++++
+ tools/include/linux/kernel.h             | 21 +++++++++++++
+ tools/include/linux/printk.h             | 40 ++++++++++++++++++++++++
+ 3 files changed, 72 insertions(+)
+ create mode 100644 tools/include/linux/printk.h
+
+diff --git a/tools/include/asm-generic/bitops/__ffs.h b/tools/include/asm-generic/bitops/__ffs.h
+index 9d1310519497..963f8a22212f 100644
+--- a/tools/include/asm-generic/bitops/__ffs.h
++++ b/tools/include/asm-generic/bitops/__ffs.h
+@@ -42,4 +42,15 @@ static __always_inline unsigned long __ffs(unsigned long word)
+ 	return num;
+ }
+ 
++static inline unsigned long __ffs64(u64 word)
++{
++#if BITS_PER_LONG == 32
++	if (((u32)word) == 0UL)
++		return __ffs((u32)(word >> 32)) + 32;
++#elif BITS_PER_LONG != 64
++#error BITS_PER_LONG not 32 or 64
++#endif
++	return __ffs((unsigned long)word);
++}
++
+ #endif /* _TOOLS_LINUX_ASM_GENERIC_BITOPS___FFS_H_ */
+diff --git a/tools/include/linux/kernel.h b/tools/include/linux/kernel.h
+index a7e54a08fb54..e748982ed5c1 100644
+--- a/tools/include/linux/kernel.h
++++ b/tools/include/linux/kernel.h
+@@ -114,6 +114,27 @@ int scnprintf_pad(char * buf, size_t size, const char * fmt, ...);
+ #define round_up(x, y) ((((x)-1) | __round_mask(x, y))+1)
+ #define round_down(x, y) ((x) & ~__round_mask(x, y))
+ 
++/**
++ * upper_32_bits - return bits 32-63 of a number
++ * @n: the number we're accessing
++ *
++ * A basic shift-right of a 64- or 32-bit quantity.  Use this to suppress
++ * the "right shift count >= width of type" warning when that quantity is
++ * 32-bits.
++ */
++#define upper_32_bits(n) ((u32)(((n) >> 16) >> 16))
++
++/**
++ * lower_32_bits - return bits 0-31 of a number
++ * @n: the number we're accessing
++ */
++#define lower_32_bits(n) ((u32)(n))
++
++/* Inspired from ALIGN_*_KERNEL */
++#define __ALIGN_MASK(x, mask)	(((x) + (mask)) & ~(mask))
++#define __ALIGN(x, a)		__ALIGN_MASK(x, (typeof(x))(a) - 1)
++#define ALIGN_DOWN(x, a)	__ALIGN((x) - ((a) - 1), (a))
++
+ #define current_gfp_context(k) 0
+ #define synchronize_rcu()
+ 
+diff --git a/tools/include/linux/printk.h b/tools/include/linux/printk.h
+new file mode 100644
+index 000000000000..515ebdc47e6e
+--- /dev/null
++++ b/tools/include/linux/printk.h
+@@ -0,0 +1,40 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++#ifndef _TOOLS_LINUX_KERNEL_PRINTK_H_
++#define _TOOLS_LINUX_KERNEL_PRINTK_H_
++
++#include <stdarg.h>
++#include <stdio.h>
++#include <stdlib.h>
++
++#define printk(fmt, ...) fprintf(stdout, fmt, ##__VA_ARGS__)
++#define pr_info printk
++#define pr_notice printk
++#define pr_cont printk
++
++#define pr_warn(fmt, ...) fprintf(stderr, fmt, ##__VA_ARGS__)
++#define pr_err pr_warn
++#define pr_alert pr_warn
++#define pr_emerg pr_warn
++#define pr_crit pr_warn
++
++/*
++ * Dummy printk for disabled debugging statements to use whilst maintaining
++ * gcc's format checking.
++ */
++#define no_printk(fmt, ...)				\
++({							\
++	if (0)						\
++		printk(fmt, ##__VA_ARGS__);		\
++	0;						\
++})
++
++/* pr_devel() should produce zero code unless DEBUG is defined */
++#ifdef DEBUG
++#define pr_devel(fmt, ...) printk
++#else
++#define pr_devel(fmt, ...) no_printk
++#endif
++
++#define pr_debug pr_devel
++
++#endif /* _TOOLS_LINUX_KERNEL_PRINTK_H_ */
+-- 
+2.32.0
+

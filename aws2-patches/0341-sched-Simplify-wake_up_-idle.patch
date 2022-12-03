@@ -1,0 +1,68 @@
+From 8df13e85012be6499470aa5ae5356f58adcd2e9d Mon Sep 17 00:00:00 2001
+From: Peter Zijlstra <peterz@infradead.org>
+Date: Wed, 29 Sep 2021 17:17:27 +0200
+Subject: sched: Simplify wake_up_*idle*()
+
+Simplify and make wake_up_if_idle() more robust, also don't iterate
+the whole machine with preempt_disable() in it's caller:
+wake_up_all_idle_cpus().
+
+This prepares for another wake_up_if_idle() user that needs a full
+do_idle() cycle.
+
+Signed-off-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+---
+ kernel/sched/core.c | 14 +++++---------
+ kernel/smp.c        |  6 +++---
+ 2 files changed, 8 insertions(+), 12 deletions(-)
+
+diff --git a/kernel/sched/core.c b/kernel/sched/core.c
+index da96a309eefe..19ae33842dae 100644
+--- a/kernel/sched/core.c
++++ b/kernel/sched/core.c
+@@ -2636,15 +2636,11 @@ void wake_up_if_idle(int cpu)
+ 	if (!is_idle_task(rcu_dereference(rq->curr)))
+ 		goto out;
+ 
+-	if (set_nr_if_polling(rq->idle)) {
+-		trace_sched_wake_idle_without_ipi(cpu);
+-	} else {
+-		rq_lock_irqsave(rq, &rf);
+-		if (is_idle_task(rq->curr))
+-			smp_send_reschedule(cpu);
+-		/* Else CPU is not idle, do nothing here: */
+-		rq_unlock_irqrestore(rq, &rf);
+-	}
++	rq_lock_irqsave(rq, &rf);
++	if (is_idle_task(rq->curr))
++		resched_curr(rq);
++	/* Else CPU is not idle, do nothing here: */
++	rq_unlock_irqrestore(rq, &rf);
+ 
+ out:
+ 	rcu_read_unlock();
+diff --git a/kernel/smp.c b/kernel/smp.c
+index b0684b4c111e..0e13d65e348d 100644
+--- a/kernel/smp.c
++++ b/kernel/smp.c
+@@ -952,14 +952,14 @@ void wake_up_all_idle_cpus(void)
+ {
+ 	int cpu;
+ 
+-	preempt_disable();
++	cpus_read_lock();
+ 	for_each_online_cpu(cpu) {
+-		if (cpu == smp_processor_id())
++		if (cpu == raw_smp_processor_id())
+ 			continue;
+ 
+ 		wake_up_if_idle(cpu);
+ 	}
+-	preempt_enable();
++	cpus_read_unlock();
+ }
+ EXPORT_SYMBOL_GPL(wake_up_all_idle_cpus);
+ 
+-- 
+2.32.0
+

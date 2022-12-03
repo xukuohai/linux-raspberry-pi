@@ -1,0 +1,26 @@
+From 0135ba341b2cd7e3eb73d096c29f75f8a28a049c Mon Sep 17 00:00:00 2001
+From: Hailey <hailmo@amazon.com>
+Date: Fri, 3 Jun 2022 17:18:58 +0000
+Subject: enable rfc4106(gcm(aes)) for fips
+
+This alogrithim works with no additional changes required and has been
+requested by a customer, so enable it
+---
+ crypto/testmgr.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/crypto/testmgr.c b/crypto/testmgr.c
+index 51c99630c61a..eef9142bfec9 100644
+--- a/crypto/testmgr.c
++++ b/crypto/testmgr.c
+@@ -5234,6 +5234,7 @@ static const struct alg_test_desc alg_test_descs[] = {
+ 		.alg = "rfc4106(gcm(aes))",
+ 		.generic_driver = "rfc4106(gcm_base(ctr(aes-generic),ghash-generic))",
+ 		.test = alg_test_aead,
++		.fips_allowed = 1,
+ 		.suite = {
+ 			.aead = {
+ 				____VECS(aes_gcm_rfc4106_tv_template),
+-- 
+2.32.0
+

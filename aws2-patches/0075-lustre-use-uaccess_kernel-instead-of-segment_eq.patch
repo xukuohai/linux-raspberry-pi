@@ -1,0 +1,36 @@
+From e6652fb0132b508b9f805b025fd11303110037a9 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 16 Oct 2020 16:08:39 +0000
+Subject: lustre: use uaccess_kernel instead of segment_eq
+
+Commit 428e2976a5bf ("uaccess: remove segment_eq") removed
+the segment_eq macro, replacing it with uaccess_kernel
+for the cases where it was still used.
+
+Those cases match the use case in the lustre code, so convert
+it in the same manner.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c | 5 ++---
+ 1 file changed, 2 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
+index 62e03bde7722..a703b0e5b456 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/sec_ctx.c
+@@ -37,9 +37,8 @@
+ /* Debugging check only needed during development */
+ #ifdef OBD_CTXT_DEBUG
+ # define ASSERT_CTXT_MAGIC(magic) LASSERT((magic) == OBD_RUN_CTXT_MAGIC)
+-# define ASSERT_NOT_KERNEL_CTXT(msg) LASSERTF(!segment_eq(get_fs(), KERNEL_DS),\
+-					      msg)
+-# define ASSERT_KERNEL_CTXT(msg) LASSERTF(segment_eq(get_fs(), KERNEL_DS), msg)
++# define ASSERT_NOT_KERNEL_CTXT(msg) LASSERTF(!uaccess_kernel(), msg)
++# define ASSERT_KERNEL_CTXT(msg) LASSERTF(uaccess_kernel(), msg)
+ #else
+ # define ASSERT_CTXT_MAGIC(magic) do {} while(0)
+ # define ASSERT_NOT_KERNEL_CTXT(msg) do {} while(0)
+-- 
+2.32.0
+

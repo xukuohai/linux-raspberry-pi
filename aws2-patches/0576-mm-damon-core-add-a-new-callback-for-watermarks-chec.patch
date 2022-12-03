@@ -1,0 +1,126 @@
+From 7e81688fb618910e03b03db7e2475db4d4cd104f Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:54 -0700
+Subject: mm/damon/core: add a new callback for watermarks checks
+
+Patch series "mm/damon: Support online tuning".
+
+Effects of DAMON and DAMON-based Operation Schemes highly depends on the
+configurations.  Wrong configurations could even result in unexpected
+efficiency degradations.  For finding a best configuration, repeating
+incremental configuration changes and results measurements, in other
+words, online tuning, could be helpful.
+
+Nevertheless, DAMON kernel API supports only restrictive online tuning.
+Worse yet, the sysfs-based DAMON user interface doesn't support online
+tuning at all.  DAMON_RECLAIM also doesn't support online tuning.
+
+This patchset makes the DAMON kernel API, DAMON sysfs interface, and
+DAMON_RECLAIM supports online tuning.
+
+Sequence of patches
+-------------------
+
+First two patches enhance DAMON online tuning for kernel API users.
+Specifically, patch 1 let kernel API users to be able to do DAMON online
+tuning without a restriction, and patch 2 makes error handling easier.
+
+Following seven patches (patches 3-9) refactor code for better readability
+and easier reuse of code fragments that will be useful for online tuning
+support.
+
+Patch 10 introduces DAMON callback based user request handling structure
+for DAMON sysfs interface, and patch 11 enables DAMON online tuning via
+DAMON sysfs interface.  Documentation patch (patch 12) for usage of it
+follows.
+
+Patch 13 enables online tuning of DAMON_RECLAIM and finally patch 14
+documents the DAMON_RECLAIM online tuning usage.
+
+
+This patch (of 14):
+
+For updating input parameters for running DAMON contexts, DAMON kernel API
+users can use the contexts' callbacks, as it is the safe place for context
+internal data accesses.  When the context has DAMON-based operation
+schemes and all schemes are deactivated due to their watermarks, however,
+DAMON does nothing but only watermarks checks.  As a result, no callbacks
+will be called back, and therefore the kernel API users cannot update the
+input parameters including monitoring attributes, DAMON-based operation
+schemes, and watermarks.
+
+To let users easily update such DAMON input parameters in such a case,
+this commit adds a new callback, 'after_wmarks_check()'.  It will be
+called after each watermarks check.  Users can do the online input
+parameters update in the callback even under the schemes deactivated case.
+
+Link: https://lkml.kernel.org/r/20220429160606.127307-2-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ include/linux/damon.h | 7 +++++++
+ mm/damon/core.c       | 8 +++++++-
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 09a5d0d02c00..6cb5ab5d8e9d 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -343,6 +343,7 @@ struct damon_operations {
+  * struct damon_callback - Monitoring events notification callbacks.
+  *
+  * @before_start:	Called before starting the monitoring.
++ * @after_wmarks_check:	Called after each schemes' watermarks check.
+  * @after_sampling:	Called after each sampling.
+  * @after_aggregation:	Called after each aggregation.
+  * @before_terminate:	Called before terminating the monitoring.
+@@ -353,6 +354,11 @@ struct damon_operations {
+  * respectively.  Therefore, those are good places for installing and cleaning
+  * @private.
+  *
++ * The monitoring thread calls @after_wmarks_check after each DAMON-based
++ * operation schemes' watermarks check.  If users need to make changes to the
++ * attributes of the monitoring context while it's deactivated due to the
++ * watermarks, this is the good place to do.
++ *
+  * The monitoring thread calls @after_sampling and @after_aggregation for each
+  * of the sampling intervals and aggregation intervals, respectively.
+  * Therefore, users can safely access the monitoring results without additional
+@@ -365,6 +371,7 @@ struct damon_callback {
+ 	void *private;
+ 
+ 	int (*before_start)(struct damon_ctx *context);
++	int (*after_wmarks_check)(struct damon_ctx *context);
+ 	int (*after_sampling)(struct damon_ctx *context);
+ 	int (*after_aggregation)(struct damon_ctx *context);
+ 	void (*before_terminate)(struct damon_ctx *context);
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 997cf7b17779..44fe7e452a1e 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -1051,6 +1051,10 @@ static int kdamond_wait_activation(struct damon_ctx *ctx)
+ 			return 0;
+ 
+ 		kdamond_usleep(min_wait_time);
++
++		if (ctx->callback.after_wmarks_check &&
++				ctx->callback.after_wmarks_check(ctx))
++			break;
+ 	}
+ 	return -EBUSY;
+ }
+@@ -1077,8 +1081,10 @@ static int kdamond_fn(void *data)
+ 	sz_limit = damon_region_sz_limit(ctx);
+ 
+ 	while (!kdamond_need_stop(ctx) && !done) {
+-		if (kdamond_wait_activation(ctx))
++		if (kdamond_wait_activation(ctx)) {
++			done = true;
+ 			continue;
++		}
+ 
+ 		if (ctx->ops.prepare_access_checks)
+ 			ctx->ops.prepare_access_checks(ctx);
+-- 
+2.32.0
+

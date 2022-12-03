@@ -1,0 +1,87 @@
+From a2bfedcf6ea9d4b1145e21a6d756bc2cf52629bd Mon Sep 17 00:00:00 2001
+From: Pablo Neira Ayuso <pablo@netfilter.org>
+Date: Thu, 17 Mar 2022 11:59:26 +0100
+Subject: netfilter: nf_tables: validate registers coming from userspace.
+
+Bail out in case userspace uses unsupported registers.
+
+Fixes: 49499c3e6e18 ("netfilter: nf_tables: switch registers to 32 bit addressing")
+Signed-off-by: Pablo Neira Ayuso <pablo@netfilter.org>
+(cherry picked from commit 6e1acfa387b9ff82cfc7db8cc3b6959221a95851)
+Signed-off-by: Samuel Mendoza-Jonas <samjonas@amazon.com>
+---
+ include/net/netfilter/nf_tables.h |  2 +-
+ net/netfilter/nf_tables_api.c     | 22 +++++++++++++++++-----
+ 2 files changed, 18 insertions(+), 6 deletions(-)
+
+diff --git a/include/net/netfilter/nf_tables.h b/include/net/netfilter/nf_tables.h
+index e66fee99ed3e..48b85b8deabd 100644
+--- a/include/net/netfilter/nf_tables.h
++++ b/include/net/netfilter/nf_tables.h
+@@ -205,7 +205,7 @@ static inline enum nft_registers nft_type_to_reg(enum nft_data_types type)
+ }
+ 
+ int nft_parse_u32_check(const struct nlattr *attr, int max, u32 *dest);
+-unsigned int nft_parse_register(const struct nlattr *attr);
++unsigned int nft_parse_register(const struct nlattr *attr, u32 *preg);
+ int nft_dump_register(struct sk_buff *skb, unsigned int attr, unsigned int reg);
+ 
+ int nft_parse_register_load(const struct nlattr *attr, u8 *sreg, u32 len);
+diff --git a/net/netfilter/nf_tables_api.c b/net/netfilter/nf_tables_api.c
+index 810995d712ac..b57391d94261 100644
+--- a/net/netfilter/nf_tables_api.c
++++ b/net/netfilter/nf_tables_api.c
+@@ -8481,17 +8481,23 @@ EXPORT_SYMBOL_GPL(nft_parse_u32_check);
+  *	Registers used to be 128 bit wide, these register numbers will be
+  *	mapped to the corresponding 32 bit register numbers.
+  */
+-unsigned int nft_parse_register(const struct nlattr *attr)
++unsigned int nft_parse_register(const struct nlattr *attr, u32 *preg)
+ {
+ 	unsigned int reg;
+ 
+ 	reg = ntohl(nla_get_be32(attr));
+ 	switch (reg) {
+ 	case NFT_REG_VERDICT...NFT_REG_4:
+-		return reg * NFT_REG_SIZE / NFT_REG32_SIZE;
++		*preg = reg * NFT_REG_SIZE / NFT_REG32_SIZE;
++		break;
++	case NFT_REG32_00...NFT_REG32_15:
++		*preg = reg + NFT_REG_SIZE / NFT_REG32_SIZE - NFT_REG32_00;
++		break;
+ 	default:
+-		return reg + NFT_REG_SIZE / NFT_REG32_SIZE - NFT_REG32_00;
++		return -ERANGE;
+ 	}
++
++	return 0;
+ }
+ EXPORT_SYMBOL_GPL(nft_parse_register);
+ 
+@@ -8543,7 +8549,10 @@ int nft_parse_register_load(const struct nlattr *attr, u8 *sreg, u32 len)
+ 	u32 reg;
+ 	int err;
+ 
+-	reg = nft_parse_register(attr);
++	err = nft_parse_register(attr, &reg);
++	if (err < 0)
++		return err;
++
+ 	err = nft_validate_register_load(reg, len);
+ 	if (err < 0)
+ 		return err;
+@@ -8612,7 +8621,10 @@ int nft_parse_register_store(const struct nft_ctx *ctx,
+ 	int err;
+ 	u32 reg;
+ 
+-	reg = nft_parse_register(attr);
++	err = nft_parse_register(attr, &reg);
++	if (err < 0)
++		return err;
++
+ 	err = nft_validate_register_store(ctx, reg, data, type, len);
+ 	if (err < 0)
+ 		return err;
+-- 
+2.32.0
+

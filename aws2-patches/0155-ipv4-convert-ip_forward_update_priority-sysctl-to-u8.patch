@@ -1,0 +1,54 @@
+From d72c15de661551f4a43638462c7debaa283bbffb Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <edumazet@google.com>
+Date: Thu, 25 Mar 2021 11:08:15 -0700
+Subject: ipv4: convert ip_forward_update_priority sysctl to u8
+
+This sysctl uses ip_fwd_update_priority() helper,
+so the conversion needs to change it.
+
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 1c69dedc8fa7c9684d48dc89994b4e0aceeae588)
+---
+ include/net/netns/ipv4.h   | 2 +-
+ net/ipv4/sysctl_net_ipv4.c | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/include/net/netns/ipv4.h b/include/net/netns/ipv4.h
+index 92e3d8fe954a..0fd10a7e55bf 100644
+--- a/include/net/netns/ipv4.h
++++ b/include/net/netns/ipv4.h
+@@ -99,7 +99,7 @@ struct netns_ipv4 {
+ 	u8 sysctl_ip_default_ttl;
+ 	u8 sysctl_ip_no_pmtu_disc;
+ 	u8 sysctl_ip_fwd_use_pmtu;
+-	int sysctl_ip_fwd_update_priority;
++	u8 sysctl_ip_fwd_update_priority;
+ 	u8 sysctl_ip_nonlocal_bind;
+ 	u8 sysctl_ip_autobind_reuse;
+ 	/* Shall we try to damage output packets if routing dev changes? */
+diff --git a/net/ipv4/sysctl_net_ipv4.c b/net/ipv4/sysctl_net_ipv4.c
+index 4cde012feab5..95f32676842d 100644
+--- a/net/ipv4/sysctl_net_ipv4.c
++++ b/net/ipv4/sysctl_net_ipv4.c
+@@ -209,7 +209,7 @@ static int ipv4_fwd_update_priority(struct ctl_table *table, int write,
+ 
+ 	net = container_of(table->data, struct net,
+ 			   ipv4.sysctl_ip_fwd_update_priority);
+-	ret = proc_dointvec_minmax(table, write, buffer, lenp, ppos);
++	ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
+ 	if (write && ret == 0)
+ 		call_netevent_notifiers(NETEVENT_IPV4_FWD_UPDATE_PRIORITY_UPDATE,
+ 					net);
+@@ -743,7 +743,7 @@ static struct ctl_table ipv4_net_table[] = {
+ 	{
+ 		.procname	= "ip_forward_update_priority",
+ 		.data		= &init_net.ipv4.sysctl_ip_fwd_update_priority,
+-		.maxlen		= sizeof(int),
++		.maxlen		= sizeof(u8),
+ 		.mode		= 0644,
+ 		.proc_handler   = ipv4_fwd_update_priority,
+ 		.extra1		= SYSCTL_ZERO,
+-- 
+2.32.0
+

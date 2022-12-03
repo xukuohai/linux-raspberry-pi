@@ -1,0 +1,42 @@
+From 997f9c54c7cbb5efdae8f5f85c7af2efa0b9b287 Mon Sep 17 00:00:00 2001
+From: Mark Brown <broonie@kernel.org>
+Date: Wed, 24 Feb 2021 16:50:37 +0000
+Subject: arm64: stacktrace: Report when we reach the end of the stack
+
+Currently the arm64 unwinder code returns -EINVAL whenever it can't find
+the next stack frame, not distinguishing between cases where the stack has
+been corrupted or is otherwise in a state it shouldn't be and cases
+where we have reached the end of the stack. At the minute none of the
+callers care what error code is returned but this will be important for
+reliable stack trace which needs to be sure that the stack is intact.
+
+Change to return -ENOENT in the case where we reach the bottom of the
+stack. The error codes from this function are only used in kernel, this
+particular code is chosen as we are indicating that we know there is no
+frame there.
+
+Signed-off-by: Mark Brown <broonie@kernel.org>
+Acked-by: Mark Rutland <mark.rutland@arm.com>
+Link: https://lore.kernel.org/r/20210224165037.24138-1-broonie@kernel.org
+Signed-off-by: Will Deacon <will@kernel.org>
+(cherry picked from commit 3c02600144bdb0a1280a9090d3a7e37e2f9fdcc8)
+---
+ arch/arm64/kernel/stacktrace.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/kernel/stacktrace.c b/arch/arm64/kernel/stacktrace.c
+index 7aeb6d863c67..9b3f5efa7119 100644
+--- a/arch/arm64/kernel/stacktrace.c
++++ b/arch/arm64/kernel/stacktrace.c
+@@ -46,7 +46,7 @@ int notrace unwind_frame(struct task_struct *tsk, struct stackframe *frame)
+ 
+ 	/* Terminal record; nothing to unwind */
+ 	if (!fp)
+-		return -EINVAL;
++		return -ENOENT;
+ 
+ 	if (fp & 0xf)
+ 		return -EINVAL;
+-- 
+2.32.0
+

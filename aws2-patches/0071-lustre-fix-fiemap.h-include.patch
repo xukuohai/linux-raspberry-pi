@@ -1,0 +1,29 @@
+From 705839eafafcc314c40f3ba297669825a8ee75e3 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 14 Oct 2020 22:21:01 +0000
+Subject: lustre: fix fiemap.h include
+
+It shouldn't be inside ifndef __KERNEL__
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/include/lustre/ll_fiemap.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre/ll_fiemap.h b/drivers/staging/lustrefsx/lustre/include/lustre/ll_fiemap.h
+index cee135bf3c74..9ec06c7fb804 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre/ll_fiemap.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre/ll_fiemap.h
+@@ -43,8 +43,8 @@
+ 
+ #ifndef __KERNEL__
+ #include <stddef.h>
+-#include <linux/fiemap.h>
+ #endif
++#include <linux/fiemap.h>
+ 
+ /* XXX: We use fiemap_extent::fe_reserved[0] */
+ #define fe_device	fe_reserved[0]
+-- 
+2.32.0
+

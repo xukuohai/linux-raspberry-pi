@@ -1,0 +1,60 @@
+From 4725889987501007ba50dd6dd0ba9e3a90089628 Mon Sep 17 00:00:00 2001
+From: Kefeng Wang <wangkefeng.wang@huawei.com>
+Date: Tue, 17 May 2022 22:51:20 +0800
+Subject: mm: damon: use HPAGE_PMD_SIZE
+
+Use HPAGE_PMD_SIZE instead of open coding.
+
+Link: https://lkml.kernel.org/r/20220517145120.118523-1-wangkefeng.wang@huawei.com
+Signed-off-by: Kefeng Wang <wangkefeng.wang@huawei.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/ops-common.c | 3 +--
+ mm/damon/paddr.c      | 2 +-
+ mm/damon/vaddr.c      | 2 +-
+ 3 files changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/mm/damon/ops-common.c b/mm/damon/ops-common.c
+index e346cc10d143..10ef20b2003f 100644
+--- a/mm/damon/ops-common.c
++++ b/mm/damon/ops-common.c
+@@ -73,8 +73,7 @@ void damon_pmdp_mkold(pmd_t *pmd, struct mm_struct *mm, unsigned long addr)
+ 	}
+ 
+ #ifdef CONFIG_MMU_NOTIFIER
+-	if (mmu_notifier_clear_young(mm, addr,
+-				addr + ((1UL) << HPAGE_PMD_SHIFT)))
++	if (mmu_notifier_clear_young(mm, addr, addr + HPAGE_PMD_SIZE))
+ 		referenced = true;
+ #endif /* CONFIG_MMU_NOTIFIER */
+ 
+diff --git a/mm/damon/paddr.c b/mm/damon/paddr.c
+index ffcd6047fea8..208fb369f22e 100644
+--- a/mm/damon/paddr.c
++++ b/mm/damon/paddr.c
+@@ -112,7 +112,7 @@ static bool __damon_pa_young(struct page *page, struct vm_area_struct *vma,
+ 			result->accessed = pmd_young(*pvmw.pmd) ||
+ 				!page_is_idle(page) ||
+ 				mmu_notifier_test_young(vma->vm_mm, addr);
+-			result->page_sz = ((1UL) << HPAGE_PMD_SHIFT);
++			result->page_sz = HPAGE_PMD_SIZE;
+ #else
+ 			WARN_ON_ONCE(1);
+ #endif	/* CONFIG_TRANSPARENT_HUGEPAGE */
+diff --git a/mm/damon/vaddr.c b/mm/damon/vaddr.c
+index 77f326323e74..59e1653799f8 100644
+--- a/mm/damon/vaddr.c
++++ b/mm/damon/vaddr.c
+@@ -442,7 +442,7 @@ static int damon_young_pmd_entry(pmd_t *pmd, unsigned long addr,
+ 		if (pmd_young(*pmd) || !page_is_idle(page) ||
+ 					mmu_notifier_test_young(walk->mm,
+ 						addr)) {
+-			*priv->page_sz = ((1UL) << HPAGE_PMD_SHIFT);
++			*priv->page_sz = HPAGE_PMD_SIZE;
+ 			priv->young = true;
+ 		}
+ 		put_page(page);
+-- 
+2.32.0
+

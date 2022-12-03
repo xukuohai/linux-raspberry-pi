@@ -1,0 +1,47 @@
+From efe0152e797e1c611696c6f8ae8fa1de9590d2a4 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 14 Oct 2020 08:38:01 +0100
+Subject: objtool: Support addition to set CFA base
+
+On arm64, the compiler can set the frame pointer either
+with a move operation or with and add operation like:
+
+    add (SP + constant), BP
+
+For a simple move operation, the CFA base is changed from SP to BP.
+Handle also changing the CFA base when the frame pointer is set with
+an addition instruction.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+Acked-by: Peter Zijlstra (Intel) <peterz@infradead.org>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+(cherry picked from commit 468af56a7bbaa626da5a4578bedc930d731fba13)
+---
+ tools/objtool/check.c | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/tools/objtool/check.c b/tools/objtool/check.c
+index 6961ff90c203..d049ce732f9f 100644
+--- a/tools/objtool/check.c
++++ b/tools/objtool/check.c
+@@ -2323,6 +2323,17 @@ static int update_cfi_state(struct instruction *insn, struct cfi_state *cfi,
+ 				break;
+ 			}
+ 
++			if (!cfi->drap && op->src.reg == CFI_SP &&
++			    op->dest.reg == CFI_BP && cfa->base == CFI_SP &&
++			    check_reg_frame_pos(&regs[CFI_BP], -cfa->offset + op->src.offset)) {
++
++				/* lea disp(%rsp), %rbp */
++				cfa->base = CFI_BP;
++				cfa->offset -= op->src.offset;
++				cfi->bp_scratch = false;
++				break;
++			}
++
+ 			if (op->src.reg == CFI_SP && cfa->base == CFI_SP) {
+ 
+ 				/* drap: lea disp(%rsp), %drap */
+-- 
+2.32.0
+

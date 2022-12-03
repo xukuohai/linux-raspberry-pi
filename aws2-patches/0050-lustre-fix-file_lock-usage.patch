@@ -1,0 +1,38 @@
+From 4ef0d40b000a1b88805b7ec2734cd3ae0423b219 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 13 Sep 2019 18:24:33 +0000
+Subject: lustre: fix file_lock usage
+
+Now that lm_compare_owner is gone, make the usage of it conditional,
+for older kernels.
+
+Linux commit f85d93385e9fe6886a751f647f6812a89bf6bee3 ("locks: Cleanup lm_compare_owner and lm_owner_key")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/llite/file.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/lustre/llite/file.c b/drivers/staging/lustrefsx/lustre/llite/file.c
+index 45cd5a409430..165141dc52cb 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/file.c
++++ b/drivers/staging/lustrefsx/lustre/llite/file.c
+@@ -3268,6 +3268,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
+         }
+         flock.l_flock.pid = file_lock->fl_pid;
+ 
++#ifdef HAVE_LM_COMPARE_OWNER
+ 	/* Somewhat ugly workaround for svc lockd.
+ 	 * lockd installs custom fl_lmops->lm_compare_owner that checks
+ 	 * for the fl_owner to be the same (which it always is on local node
+@@ -3277,6 +3278,7 @@ ll_file_flock(struct file *file, int cmd, struct file_lock *file_lock)
+ 	 * pointer space for current->files are not intersecting */
+ 	if (file_lock->fl_lmops && file_lock->fl_lmops->lm_compare_owner)
+ 		flock.l_flock.owner = (unsigned long)file_lock->fl_pid;
++#endif
+ 
+ 	switch (fl_type) {
+         case F_RDLCK:
+-- 
+2.32.0
+

@@ -1,0 +1,63 @@
+From 2bf65a2f2d2f1858b18bea3ad755775478239d98 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Mon, 9 May 2022 18:20:51 -0700
+Subject: mm/damon/sysfs: add a file for listing available monitoring ops
+
+DAMON programming interface users can know if specific monitoring ops set
+is registered or not using 'damon_is_registered_ops()', but there is no
+such method for the user space.  To help the case, this commit adds a new
+DAMON sysfs file called 'avail_operations' under each context directory
+for listing available monitoring ops.  Reading the file will list each
+registered monitoring ops on each line.
+
+Link: https://lkml.kernel.org/r/20220426203843.45238-3-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+---
+ mm/damon/sysfs.c | 19 +++++++++++++++++++
+ 1 file changed, 19 insertions(+)
+
+diff --git a/mm/damon/sysfs.c b/mm/damon/sysfs.c
+index 48e434cd43d8..6ad6364780b8 100644
+--- a/mm/damon/sysfs.c
++++ b/mm/damon/sysfs.c
+@@ -1810,6 +1810,21 @@ static void damon_sysfs_context_rm_dirs(struct damon_sysfs_context *context)
+ 	kobject_put(&context->schemes->kobj);
+ }
+ 
++static ssize_t avail_operations_show(struct kobject *kobj,
++		struct kobj_attribute *attr, char *buf)
++{
++	enum damon_ops_id id;
++	int len = 0;
++
++	for (id = 0; id < NR_DAMON_OPS; id++) {
++		if (!damon_is_registered_ops(id))
++			continue;
++		len += sysfs_emit_at(buf, len, "%s\n",
++				damon_sysfs_ops_strs[id]);
++	}
++	return len;
++}
++
+ static ssize_t operations_show(struct kobject *kobj,
+ 		struct kobj_attribute *attr, char *buf)
+ {
+@@ -1840,10 +1855,14 @@ static void damon_sysfs_context_release(struct kobject *kobj)
+ 	kfree(container_of(kobj, struct damon_sysfs_context, kobj));
+ }
+ 
++static struct kobj_attribute damon_sysfs_context_avail_operations_attr =
++		__ATTR_RO_MODE(avail_operations, 0400);
++
+ static struct kobj_attribute damon_sysfs_context_operations_attr =
+ 		__ATTR_RW_MODE(operations, 0600);
+ 
+ static struct attribute *damon_sysfs_context_attrs[] = {
++	&damon_sysfs_context_avail_operations_attr.attr,
+ 	&damon_sysfs_context_operations_attr.attr,
+ 	NULL,
+ };
+-- 
+2.32.0
+

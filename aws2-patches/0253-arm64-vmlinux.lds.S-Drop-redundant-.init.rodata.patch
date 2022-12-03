@@ -1,0 +1,36 @@
+From 14d43740b6dbb79df3e802ec71a5f8fd8ff1bee6 Mon Sep 17 00:00:00 2001
+From: Youling Tang <tangyouling@loongson.cn>
+Date: Thu, 19 Nov 2020 09:45:40 +0800
+Subject: arm64: vmlinux.lds.S: Drop redundant *.init.rodata.*
+
+We currently try to emit *.init.rodata.* twice, once in INIT_DATA, and once
+in the line immediately following it. As the two section definitions are
+identical, the latter is redundant and can be dropped.
+
+This patch drops the redundant *.init.rodata.* section definition.
+
+Signed-off-by: Youling Tang <tangyouling@loongson.cn>
+Acked-by: Will Deacon <will@kernel.org>
+Link: https://lore.kernel.org/r/1605750340-910-1-git-send-email-tangyouling@loongson.cn
+Signed-off-by: Catalin Marinas <catalin.marinas@arm.com>
+(cherry picked from commit 344f2db2a18af45faafce13133c84c4f076876a6)
+---
+ arch/arm64/kernel/vmlinux.lds.S | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/arch/arm64/kernel/vmlinux.lds.S b/arch/arm64/kernel/vmlinux.lds.S
+index 31fdb55cd4e2..b079c1b1259f 100644
+--- a/arch/arm64/kernel/vmlinux.lds.S
++++ b/arch/arm64/kernel/vmlinux.lds.S
+@@ -199,7 +199,7 @@ SECTIONS
+ 		INIT_CALLS
+ 		CON_INITCALL
+ 		INIT_RAM_FS
+-		*(.init.altinstructions .init.rodata.* .init.bss)	/* from the EFI stub */
++		*(.init.altinstructions .init.bss)	/* from the EFI stub */
+ 	}
+ 	.exit.data : {
+ 		EXIT_DATA
+-- 
+2.32.0
+

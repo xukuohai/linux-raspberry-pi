@@ -1,0 +1,147 @@
+From 98d6151ac52e93f741224362835616adef9003fe Mon Sep 17 00:00:00 2001
+From: Alakesh Haloi <alakeshh@amazon.com>
+Date: Fri, 27 Oct 2017 00:36:15 +0000
+Subject: not-for-upstream: testmgr config changes to enable FIPS boot
+
+The Federal Information Processing Standard (FIPS) Publication 140-2, is a
+computer security standard, developed by a U.S. Government and industry working
+group to validate the quality of cryptographic modules. Enabling FIPS mode
+involves the following steps:
+a. prelinking needs to be disabled. PRELINKING=no in /etc/sysconfig/prelink
+b. Install dracut-fips package
+   # yum install dracut-fips.
+   Installing dracut-fipes enables module signing by default and also enables
+   scripts that do FIPS integrity verification, regardless of whether FIPS mode
+   is on. If FIPS mode is on, and verification failure is detected, then syste
+   will panic.
+c. Recreate initramfs
+   # dracut -v -f
+d. Modify kernel command line to include the following option fips=1. For gaub2
+   based system add fips=1 to the end of the CMDLINE in /etc/default/grub and
+   then run the following command
+   # grub2-mkconfig -o /boot/grub2/grub.cfg
+e. Reboot the system.
+
+In FIPS mode, some self tests are run by dracut-fips package which is otherwise
+not the case for kernel not running in FIPS mode. The changes in the tests
+mentioned in this CR is only relevant for kernel running in FIPS mode.
+
+In this changeset, we enable/disable cryptographic algorithms in FIPS mode to
+make sure that we enable the tests that are supportedand disable the tests that
+are not supported in our kernel. Among the tests that are not supported are the
+SHA3 family of tests and their hmac versions. Also gcm(aesni) is disabled as
+the support is currently missing in the kernel. Also we should remember that,
+this change is not an effort to make the kernel FIPS compliant. FIPS compliance
+needs to be done by certified authority. This change is about adding support
+for FIPS mode. Running official FIPS compliance may necessiate support for
+additional cryptographic algorithms or remove fips_enabed flag in the tests for
+few algorithms as the need may arise.
+
+FIPS mode for a test is disabled by removing fips_enabled = 1 from the test
+description in testmgr.c. Adding support is more involved. The test needs to
+be implemented and pointed to in the structure used to describe the test.
+
+In FIPS mode, only the tests that are tagged with fips_enabled=1 are run and
+rest of the tests are ignored. So if you are not sure about an algorithm which
+needs to be enabled in FIPS mode, it needs to be disabled in testmgr.c.
+
+NU: because FIPS enablement is distro specific.
+
+Signed-off-by: Alakesh Haloi <alakeshh@amazon.com>
+Reviewed-by: Eduardo Valentin <eduval@amazon.com>
+Reviewed-by: Anchal Agarwal <anchalag@amazon.com>
+CR: https://cr.amazon.com/r/7891829/
+
+Reviewed-by: Cristian Gafton <gafton@amazon.com>
+Reviewed-by: Frederick Lefebvre <fredlef@amazon.com>
+Reviewed-by: Eduardo Valentin <eduval@amazon.com>
+Signed-off-by: Vallish Vaidyeshwara <vallish@amazon.com>
+CR: https://cr.amazon.com/r/8209723/
+---
+ crypto/testmgr.c | 13 ++++---------
+ 1 file changed, 4 insertions(+), 9 deletions(-)
+
+diff --git a/crypto/testmgr.c b/crypto/testmgr.c
+index a64a639eddfa..51c99630c61a 100644
+--- a/crypto/testmgr.c
++++ b/crypto/testmgr.c
+@@ -5003,28 +5003,24 @@ static const struct alg_test_desc alg_test_descs[] = {
+ 	}, {
+ 		.alg = "hmac(sha3-224)",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(hmac_sha3_224_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "hmac(sha3-256)",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(hmac_sha3_256_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "hmac(sha3-384)",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(hmac_sha3_384_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "hmac(sha3-512)",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(hmac_sha3_512_tv_template)
+ 		}
+@@ -5238,7 +5234,6 @@ static const struct alg_test_desc alg_test_descs[] = {
+ 		.alg = "rfc4106(gcm(aes))",
+ 		.generic_driver = "rfc4106(gcm_base(ctr(aes-generic),ghash-generic))",
+ 		.test = alg_test_aead,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.aead = {
+ 				____VECS(aes_gcm_rfc4106_tv_template),
+@@ -5346,28 +5341,24 @@ static const struct alg_test_desc alg_test_descs[] = {
+ 	}, {
+ 		.alg = "sha3-224",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(sha3_224_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "sha3-256",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(sha3_256_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "sha3-384",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(sha3_384_tv_template)
+ 		}
+ 	}, {
+ 		.alg = "sha3-512",
+ 		.test = alg_test_hash,
+-		.fips_allowed = 1,
+ 		.suite = {
+ 			.hash = __VECS(sha3_512_tv_template)
+ 		}
+@@ -5536,6 +5527,10 @@ static const struct alg_test_desc alg_test_descs[] = {
+ 		.suite = {
+ 			.hash = __VECS(xxhash64_tv_template)
+ 		}
++	}, {
++		.alg = "zlib",
++		.test = alg_test_null,
++		.fips_allowed = 1,
+ 	}, {
+ 		.alg = "zlib-deflate",
+ 		.test = alg_test_comp,
+-- 
+2.32.0
+

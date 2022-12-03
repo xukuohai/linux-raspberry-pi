@@ -1,0 +1,77 @@
+From 9641d032c936c0f3c48070349dabb1e68405a9ca Mon Sep 17 00:00:00 2001
+From: "Madhavan T. Venkataraman" <madvenka@linux.microsoft.com>
+Date: Mon, 15 Mar 2021 11:58:00 -0500
+Subject: arm64: Implement arch_stack_walk_reliable()
+
+unwind_frame() already sets the reliable flag in the stack frame during
+a stack walk to indicate whether the stack trace is reliable or not.
+
+Implement arch_stack_walk_reliable() like arch_stack_walk() but abort
+the stack walk as soon as the reliable flag is set to false for any
+reason.
+
+Signed-off-by: Madhavan T. Venkataraman <madvenka@linux.microsoft.com>
+---
+ arch/arm64/Kconfig             |  1 +
+ arch/arm64/kernel/stacktrace.c | 35 ++++++++++++++++++++++++++++++++++
+ 2 files changed, 36 insertions(+)
+
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index b67190e17f4b..6a5ffa70490d 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -161,6 +161,7 @@ config ARM64
+ 		if $(cc-option,-fpatchable-function-entry=2)
+ 	select FTRACE_MCOUNT_USE_PATCHABLE_FUNCTION_ENTRY \
+ 		if DYNAMIC_FTRACE_WITH_REGS
++	select HAVE_RELIABLE_STACKTRACE
+ 	select HAVE_EFFICIENT_UNALIGNED_ACCESS
+ 	select HAVE_FAST_GUP
+ 	select HAVE_FTRACE_MCOUNT_RECORD
+diff --git a/arch/arm64/kernel/stacktrace.c b/arch/arm64/kernel/stacktrace.c
+index 500925251ef7..4fd04613ebc9 100644
+--- a/arch/arm64/kernel/stacktrace.c
++++ b/arch/arm64/kernel/stacktrace.c
+@@ -358,4 +358,39 @@ noinline notrace void arch_stack_walk(stack_trace_consume_fn consume_entry,
+ 	walk_stackframe(task, &frame, consume_entry, cookie);
+ }
+ 
++/*
++ * Walk the stack like arch_stack_walk() but stop the walk as soon as
++ * some unreliability is detected in the stack.
++ */
++int arch_stack_walk_reliable(stack_trace_consume_fn consume_entry,
++			      void *cookie, struct task_struct *task)
++{
++	struct stackframe frame;
++	int ret = 0;
++
++	if (task == current) {
++		start_backtrace(&frame,
++				(unsigned long)__builtin_frame_address(0),
++				(unsigned long)arch_stack_walk_reliable);
++	} else {
++		/*
++		 * The task must not be running anywhere for the duration of
++		 * arch_stack_walk_reliable(). The caller must guarantee
++		 * this.
++		 */
++		start_backtrace(&frame, thread_saved_fp(task),
++				thread_saved_pc(task));
++	}
++
++	while (!ret) {
++		if (!frame.reliable)
++			return -EINVAL;
++		if (!consume_entry(cookie, frame.pc))
++			return -EINVAL;
++		ret = unwind_frame(task, &frame);
++	}
++
++	return ret == -ENOENT ? 0 : -EINVAL;
++}
++
+ #endif
+-- 
+2.32.0
+

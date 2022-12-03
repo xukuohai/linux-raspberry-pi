@@ -1,0 +1,41 @@
+From d99b0fce6dd7e0667c83f773f49f1a1a9564f774 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sj@kernel.org>
+Date: Fri, 14 Jan 2022 14:10:32 -0800
+Subject: Docs/admin-guide/mm/damon/usage: update for schemes statistics
+
+This updates DAMON debugfs interface for statistics of schemes
+successfully applied regions and time/space quota limit exceeds counts.
+
+Link: https://lkml.kernel.org/r/20211210150016.35349-7-sj@kernel.org
+Signed-off-by: SeongJae Park <sj@kernel.org>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ Documentation/admin-guide/mm/damon/usage.rst | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/Documentation/admin-guide/mm/damon/usage.rst b/Documentation/admin-guide/mm/damon/usage.rst
+index cb614c84ba9e..59b84904a854 100644
+--- a/Documentation/admin-guide/mm/damon/usage.rst
++++ b/Documentation/admin-guide/mm/damon/usage.rst
+@@ -223,12 +223,13 @@ is activated.
+ Statistics
+ ~~~~~~~~~~
+ 
+-It also counts the total number and bytes of regions that each scheme is
+-applied.  This statistics can be used for online analysis or tuning of the
+-schemes.
++It also counts the total number and bytes of regions that each scheme is tried
++to be applied, the two numbers for the regions that each scheme is successfully
++applied, and the total number of the quota limit exceeds.  This statistics can
++be used for online analysis or tuning of the schemes.
+ 
+ The statistics can be shown by reading the ``schemes`` file.  Reading the file
+-will show each scheme you entered in each line, and the two numbers for the
++will show each scheme you entered in each line, and the five numbers for the
+ statistics will be added at the end of each line.
+ 
+ Example
+-- 
+2.32.0
+

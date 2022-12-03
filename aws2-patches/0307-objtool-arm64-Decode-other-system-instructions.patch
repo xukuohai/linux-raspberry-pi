@@ -1,0 +1,33 @@
+From 2c410dbeb2215e701f391ebf93cb723dd2b8e5de Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 9 Sep 2020 15:33:51 +0100
+Subject: objtool: arm64: Decode other system instructions
+
+Decode ERET, BRK and NOPs
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/objtool/arch/arm64/decode.c | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/tools/objtool/arch/arm64/decode.c b/tools/objtool/arch/arm64/decode.c
+index df9cca112255..a8ad78be4e48 100644
+--- a/tools/objtool/arch/arm64/decode.c
++++ b/tools/objtool/arch/arm64/decode.c
+@@ -244,6 +244,13 @@ int arch_decode_instruction(const struct elf *elf, const struct section *sec,
+ 			/* Remaining branch opcodes are conditional */
+ 			*type = INSN_JUMP_CONDITIONAL;
+ 			*immediate = aarch64_get_branch_offset(insn);
++		} else if (aarch64_insn_is_eret(insn)) {
++			*type = INSN_CONTEXT_SWITCH;
++		} else if (aarch64_insn_is_steppable_hint(insn)) {
++			*type = INSN_NOP;
++		} else if (aarch64_insn_is_brk(insn)) {
++			*immediate = aarch64_insn_decode_immediate(AARCH64_INSN_IMM_16, insn);
++			*type = INSN_BUG;
+ 		} else {
+ 			*type = INSN_OTHER;
+ 		}
+-- 
+2.32.0
+

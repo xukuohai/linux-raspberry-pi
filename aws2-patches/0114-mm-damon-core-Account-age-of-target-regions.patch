@@ -1,0 +1,115 @@
+From 5acfb93504fda6a6807dd9098c80e65acb4f3c47 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Mon, 15 Jun 2020 12:47:09 +0200
+Subject: mm/damon/core: Account age of target regions
+
+DAMON can be used for data access pattern aware memory management
+optimizations.  For that, users should run DAMON, read the monitoring
+results, analyze it, plan a new memory management scheme, and apply the
+new scheme by themselves.  It would not be too hard, but still require
+some level of effort.  For complicated cases, this effort is inevitable.
+
+That said, in many cases, users would simply want to apply an actions to
+a memory region of a specific size having a specific access frequency
+for a specific time.  For example, "page out a memory region larger than
+100 MiB but having a low access frequency more than 10 minutes", or "Use
+THP for a memory region larger than 2 MiB having a high access frequency
+for more than 2 seconds".
+
+For such optimizations, users will need to first account the age of each
+region themselves.  To reduce such efforts, this commit implements a
+simple age account of each region in DAMON.  For each aggregation step,
+DAMON compares the access frequency with that from last aggregation and
+reset the age of the region if the change is significant.  Else, the age
+is incremented.  Also, in case of the merge of regions, the region
+size-weighted average of the ages is set as the age of merged new
+region.
+
+Signed-off-by: SeongJae Park <sjpark@amazon.de>
+---
+ include/linux/damon.h | 10 ++++++++++
+ mm/damon/core.c       | 13 +++++++++++++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index b17e808a9cae..aade1fbedb48 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -31,12 +31,22 @@ struct damon_addr_range {
+  * @sampling_addr:	Address of the sample for the next access check.
+  * @nr_accesses:	Access frequency of this region.
+  * @list:		List head for siblings.
++ * @age:		Age of this region.
++ *
++ * @age is initially zero, increased for each aggregation interval, and reset
++ * to zero again if the access frequency is significantly changed.  If two
++ * regions are merged into a new region, both @nr_accesses and @age of the new
++ * region are set as region size-weighted average of those of the two regions.
+  */
+ struct damon_region {
+ 	struct damon_addr_range ar;
+ 	unsigned long sampling_addr;
+ 	unsigned int nr_accesses;
+ 	struct list_head list;
++
++	unsigned int age;
++/* private: Internal value for age calculation. */
++	unsigned int last_nr_accesses;
+ };
+ 
+ /**
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index cad2b4cee39d..00aae299e80d 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -40,6 +40,9 @@ struct damon_region *damon_new_region(unsigned long start, unsigned long end)
+ 	region->nr_accesses = 0;
+ 	INIT_LIST_HEAD(&region->list);
+ 
++	region->age = 0;
++	region->last_nr_accesses = 0;
++
+ 	return region;
+ }
+ 
+@@ -440,6 +443,7 @@ static void kdamond_reset_aggregated(struct damon_ctx *c)
+ 
+ 		damon_for_each_region(r, t) {
+ 			trace_damon_aggregated(t, r, damon_nr_regions(t));
++			r->last_nr_accesses = r->nr_accesses;
+ 			r->nr_accesses = 0;
+ 		}
+ 	}
+@@ -457,6 +461,7 @@ static void damon_merge_two_regions(struct damon_region *l,
+ 
+ 	l->nr_accesses = (l->nr_accesses * sz_l + r->nr_accesses * sz_r) /
+ 			(sz_l + sz_r);
++	l->age = (l->age * sz_l + r->age * sz_r) / (sz_l + sz_r);
+ 	l->ar.end = r->ar.end;
+ 	damon_destroy_region(r);
+ }
+@@ -476,6 +481,11 @@ static void damon_merge_regions_of(struct damon_target *t, unsigned int thres,
+ 	struct damon_region *r, *prev = NULL, *next;
+ 
+ 	damon_for_each_region_safe(r, next, t) {
++		if (diff_of(r->nr_accesses, r->last_nr_accesses) > thres)
++			r->age = 0;
++		else
++			r->age++;
++
+ 		if (prev && prev->ar.end == r->ar.start &&
+ 		    diff_of(prev->nr_accesses, r->nr_accesses) <= thres &&
+ 		    sz_damon_region(prev) + sz_damon_region(r) <= sz_limit)
+@@ -522,6 +532,9 @@ static void damon_split_region_at(struct damon_ctx *ctx,
+ 
+ 	r->ar.end = new->ar.start;
+ 
++	new->age = r->age;
++	new->last_nr_accesses = r->last_nr_accesses;
++
+ 	damon_insert_region(new, r, damon_next_region(r));
+ }
+ 
+-- 
+2.32.0
+

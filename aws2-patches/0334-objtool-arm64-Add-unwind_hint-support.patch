@@ -1,0 +1,108 @@
+From df5ba7cf43122db66b45217ee59d9f08677a2a2e Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Fri, 3 Apr 2020 09:51:26 +0100
+Subject: objtool: arm64: Add unwind_hint support
+
+Provide unwind hint defines for arm64 and objtool hint decoding.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/include/asm/unwind_hints.h       | 27 +++++++++++++++++++++
+ tools/arch/arm64/include/asm/unwind_hints.h | 27 +++++++++++++++++++++
+ tools/objtool/arch/arm64/decode.c           |  4 ++-
+ 3 files changed, 57 insertions(+), 1 deletion(-)
+ create mode 100644 arch/arm64/include/asm/unwind_hints.h
+ create mode 100644 tools/arch/arm64/include/asm/unwind_hints.h
+
+diff --git a/arch/arm64/include/asm/unwind_hints.h b/arch/arm64/include/asm/unwind_hints.h
+new file mode 100644
+index 000000000000..60f866e4e12c
+--- /dev/null
++++ b/arch/arm64/include/asm/unwind_hints.h
+@@ -0,0 +1,27 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __ASM_UNWIND_HINTS_H
++#define __ASM_UNWIND_HINTS_H
++
++#include <linux/objtool.h>
++
++#define UNWIND_HINT_REG_UNDEFINED	0xff
++#define UNWIND_HINT_REG_SP		31
++
++#ifdef __ASSEMBLY__
++
++.macro UNWIND_HINT_EMPTY
++	UNWIND_HINT sp_reg=UNWIND_HINT_REG_UNDEFINED type=UNWIND_HINT_TYPE_CALL
++.endm
++
++.macro UNWIND_HINT_FUNC sp_offset=0
++	UNWIND_HINT sp_reg=UNWIND_HINT_REG_SP sp_offset=\sp_offset type=UNWIND_HINT_TYPE_CALL
++.endm
++
++.macro UNWIND_HINT_REGS base=UNWIND_HINT_REG_SP offset=0
++	UNWIND_HINT sp_reg=\base sp_offset=\offset type=UNWIND_HINT_TYPE_REGS
++.endm
++
++#endif /* __ASSEMBLY__ */
++
++#endif /* __ASM_UNWIND_HINTS_H */
+diff --git a/tools/arch/arm64/include/asm/unwind_hints.h b/tools/arch/arm64/include/asm/unwind_hints.h
+new file mode 100644
+index 000000000000..60f866e4e12c
+--- /dev/null
++++ b/tools/arch/arm64/include/asm/unwind_hints.h
+@@ -0,0 +1,27 @@
++/* SPDX-License-Identifier: GPL-2.0-only */
++
++#ifndef __ASM_UNWIND_HINTS_H
++#define __ASM_UNWIND_HINTS_H
++
++#include <linux/objtool.h>
++
++#define UNWIND_HINT_REG_UNDEFINED	0xff
++#define UNWIND_HINT_REG_SP		31
++
++#ifdef __ASSEMBLY__
++
++.macro UNWIND_HINT_EMPTY
++	UNWIND_HINT sp_reg=UNWIND_HINT_REG_UNDEFINED type=UNWIND_HINT_TYPE_CALL
++.endm
++
++.macro UNWIND_HINT_FUNC sp_offset=0
++	UNWIND_HINT sp_reg=UNWIND_HINT_REG_SP sp_offset=\sp_offset type=UNWIND_HINT_TYPE_CALL
++.endm
++
++.macro UNWIND_HINT_REGS base=UNWIND_HINT_REG_SP offset=0
++	UNWIND_HINT sp_reg=\base sp_offset=\offset type=UNWIND_HINT_TYPE_REGS
++.endm
++
++#endif /* __ASSEMBLY__ */
++
++#endif /* __ASM_UNWIND_HINTS_H */
+diff --git a/tools/objtool/arch/arm64/decode.c b/tools/objtool/arch/arm64/decode.c
+index 01c470c3324e..3e0193682eba 100644
+--- a/tools/objtool/arch/arm64/decode.c
++++ b/tools/objtool/arch/arm64/decode.c
+@@ -4,7 +4,10 @@
+ #include <stdlib.h>
+ #include <stdint.h>
+ 
++#include <linux/objtool.h>
++
+ #include <asm/insn.h>
++#include <asm/unwind_hints.h>
+ 
+ #include <objtool/check.h>
+ #include <objtool/arch.h>
+@@ -181,7 +184,6 @@ int arch_decode_hint_reg(u8 sp_reg, int *base)
+ 
+ 	return 0;
+ }
+-}
+ 
+ static struct stack_op *arm_make_store_op(enum aarch64_insn_register base,
+ 					  enum aarch64_insn_register reg,
+-- 
+2.32.0
+

@@ -1,0 +1,677 @@
+From e0fc9de644f14c3f0d29aaf226c74352ce147d85 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 14 Oct 2020 19:31:21 +0000
+Subject: lustre: seperate debugfs and procfs handling
+
+This first part is a partial backport of:
+
+    LU-13344 all: Separate debugfs and procfs handling
+
+    Linux 5.6 introduces proc_ops with v5.5-8862-gd56c0d45f0e2
+    proc: decouple proc from VFS with "struct proc_ops"
+
+    Separate debugfs usage and procfs usage to prepare for the divergence
+    of debugfs using file_operations and procfs using proc_ops
+
+    HPE-bug-id: LUS-8589
+    Signed-off-by: Shaun Tancheff <shaun.tancheff@hpe.com>
+    Change-Id: I1746e563b55a9e89f90ac01843c304fe6b690d8b
+    Reviewed-on: https://review.whamcloud.com/37834
+    Reviewed-by: Petros Koutoupis <petros.koutoupis@hpe.com>
+    Reviewed-by: Neil Brown <neilb@suse.de>
+    Reviewed-by: James Simmons <jsimmons@infradead.org>
+    Tested-by: jenkins <devops@whamcloud.com>
+    Tested-by: Maloo <maloo@whamcloud.com>
+    Reviewed-by: Oleg Drokin <green@whamcloud.com>
+
+The backport is partial, because the debugfs code isn't actually used
+in the Lustre 2.10 branch. But this is needed for the file_operations ->
+proc_ops change in Linux 5.6, which hasn't been completed yet in upstream
+Lustre. Get ready for that change by also changing file_operations
+to proc_ops in lprocfs_var.
+
+The second part os converting all remaining struct file_operations use
+for proc ops to struct proc_ops.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ .../lustrefsx/lustre/fid/fid_handler.c        |  2 +-
+ .../staging/lustrefsx/lustre/fid/lproc_fid.c  | 11 ++--
+ .../lustrefsx/lustre/fld/fld_internal.h       |  2 +-
+ .../staging/lustrefsx/lustre/fld/lproc_fld.c  |  7 ++-
+ .../lustrefsx/lustre/include/lprocfs_status.h | 53 +++++++++++--------
+ .../lustrefsx/lustre/ldlm/ldlm_internal.h     |  2 +-
+ .../lustrefsx/lustre/ldlm/ldlm_resource.c     | 24 ++++-----
+ .../lustrefsx/lustre/llite/lproc_llite.c      |  6 +--
+ .../staging/lustrefsx/lustre/llite/vvp_dev.c  | 11 ++--
+ .../lustrefsx/lustre/llite/vvp_internal.h     |  2 +-
+ .../lustrefsx/lustre/lmv/lmv_internal.h       |  2 +-
+ .../staging/lustrefsx/lustre/lmv/lproc_lmv.c  | 11 ++--
+ .../lustrefsx/lustre/lov/lov_internal.h       |  2 +-
+ .../staging/lustrefsx/lustre/lov/lov_pool.c   | 10 ++--
+ .../staging/lustrefsx/lustre/lov/lproc_lov.c  | 11 ++--
+ .../lustre/obdclass/lprocfs_jobstats.c        | 13 +++--
+ .../lustre/obdclass/lprocfs_status.c          | 40 ++++++++------
+ .../lustrefsx/lustre/obdclass/lu_ref.c        | 11 ++--
+ .../lustrefsx/lustre/obdclass/obd_config.c    |  9 ++--
+ .../lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c    | 11 ++--
+ 20 files changed, 126 insertions(+), 114 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/fid/fid_handler.c b/drivers/staging/lustrefsx/lustre/fid/fid_handler.c
+index ef61772f0dcb..18ac0209737c 100644
+--- a/drivers/staging/lustrefsx/lustre/fid/fid_handler.c
++++ b/drivers/staging/lustrefsx/lustre/fid/fid_handler.c
+@@ -458,7 +458,7 @@ LU_KEY_INIT_FINI(seq, struct seq_thread_info);
+ /* context key: seq_thread_key */
+ LU_CONTEXT_KEY_DEFINE(seq, LCT_MD_THREAD | LCT_DT_THREAD);
+ 
+-extern const struct file_operations seq_fld_proc_seq_fops;
++extern const struct proc_ops seq_fld_proc_seq_fops;
+ 
+ static int seq_server_proc_init(struct lu_server_seq *seq)
+ {
+diff --git a/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c b/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
+index 11ae1b699653..e504ed7ff6ce 100644
+--- a/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
++++ b/drivers/staging/lustrefsx/lustre/fid/lproc_fid.c
+@@ -496,12 +496,11 @@ static ssize_t fldb_seq_write(struct file *file, const char __user *buf,
+ 	RETURN(rc < 0 ? rc : len);
+ }
+ 
+-const struct file_operations seq_fld_proc_seq_fops = {
+-	.owner	 = THIS_MODULE,
+-	.open	 = fldb_seq_open,
+-	.read	 = seq_read,
+-	.write	 = fldb_seq_write,
+-	.release = fldb_seq_release,
++const struct proc_ops seq_fld_proc_seq_fops = {
++	.proc_open	 = fldb_seq_open,
++	.proc_read	 = seq_read,
++	.proc_write	 = fldb_seq_write,
++	.proc_release	= fldb_seq_release,
+ };
+ 
+ #endif /* HAVE_SERVER_SUPPORT */
+diff --git a/drivers/staging/lustrefsx/lustre/fld/fld_internal.h b/drivers/staging/lustrefsx/lustre/fld/fld_internal.h
+index dcb24a3c2f22..0be28746d6ef 100644
+--- a/drivers/staging/lustrefsx/lustre/fld/fld_internal.h
++++ b/drivers/staging/lustrefsx/lustre/fld/fld_internal.h
+@@ -179,7 +179,7 @@ void fld_server_mod_exit(void);
+ int fld_server_read(const struct lu_env *env, struct lu_server_fld *fld,
+ 		    struct lu_seq_range *range, void *data, int data_len);
+ #ifdef CONFIG_PROC_FS
+-extern const struct file_operations fld_proc_seq_fops;
++extern const struct proc_ops fld_proc_seq_fops;
+ extern struct lprocfs_vars fld_server_proc_list[];
+ #endif
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c b/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
+index c7be5bf6ea97..8fd39ef8160b 100644
+--- a/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
++++ b/drivers/staging/lustrefsx/lustre/fld/lproc_fld.c
+@@ -356,10 +356,9 @@ static int fldb_seq_release(struct inode *inode, struct file *file)
+ }
+ 
+ const struct file_operations fld_proc_seq_fops = {
+-	.owner   = THIS_MODULE,
+-	.open    = fldb_seq_open,
+-	.read    = seq_read,
+-	.release = fldb_seq_release,
++	.proc_open    = fldb_seq_open,
++	.proc_read    = seq_read,
++	.proc_release = fldb_seq_release,
+ };
+ 
+ struct lprocfs_vars fld_server_proc_list[] = {
+diff --git a/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h b/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
+index 646679d9aa45..028d575e207d 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
++++ b/drivers/staging/lustrefsx/lustre/include/lprocfs_status.h
+@@ -48,13 +48,25 @@
+ #include <libcfs/libcfs.h>
+ #include <lustre/lustre_idl.h>
+ 
++/*
++ * Linux 5.6 introduces proc_ops with v5.5-8862-gd56c0d45f0e2
++ * Now that proc and debugfs use separate operation vector types
++ * separate containers are also needed.
++ */
+ struct lprocfs_vars {
++	const char			*name;
++	const struct proc_ops		*fops;
++	void				*data;
++	/** /proc file mode. */
++	mode_t				 proc_mode;
++};
++
++/** Provide a debugfs container */
++struct ldebugfs_vars {
+ 	const char			*name;
+ 	const struct file_operations	*fops;
+ 	void				*data;
+-	/**
+-	 * /proc file mode.
+-	 */
++	/** debugfs file mode. */
+ 	mode_t				 proc_mode;
+ };
+ 
+@@ -478,7 +490,7 @@ static inline int lprocfs_exp_cleanup(struct obd_export *exp)
+ #endif
+ extern struct proc_dir_entry *
+ lprocfs_add_simple(struct proc_dir_entry *root, char *name,
+-		   void *data, const struct file_operations *fops);
++		   void *data, const struct proc_ops *fops);
+ extern struct proc_dir_entry *
+ lprocfs_add_symlink(const char *name, struct proc_dir_entry *parent,
+                     const char *format, ...);
+@@ -495,14 +507,14 @@ extern int lprocfs_register_stats(struct proc_dir_entry *root, const char *name,
+                                   struct lprocfs_stats *stats);
+ 
+ /* lprocfs_status.c */
+-extern int ldebugfs_add_vars(struct dentry *parent, struct lprocfs_vars *var,
++extern int ldebugfs_add_vars(struct dentry *parent, struct ldebugfs_vars *var,
+ 			     void *data);
+ extern int lprocfs_add_vars(struct proc_dir_entry *root,
+ 			    struct lprocfs_vars *var, void *data);
+ 
+ extern struct dentry *ldebugfs_register(const char *name,
+ 					struct dentry *parent,
+-					struct lprocfs_vars *list,
++					struct ldebugfs_vars *list,
+ 					void *data);
+ extern struct proc_dir_entry *
+ lprocfs_register(const char *name, struct proc_dir_entry *parent,
+@@ -537,7 +549,7 @@ static inline int LPROCFS_ENTRY_CHECK(struct inode *inode)
+ extern int lprocfs_obd_setup(struct obd_device *dev);
+ extern int lprocfs_obd_cleanup(struct obd_device *obd);
+ #ifdef HAVE_SERVER_SUPPORT
+-extern const struct file_operations lprocfs_evict_client_fops;
++extern const struct proc_ops lprocfs_evict_client_fops;
+ #endif
+ 
+ extern int ldebugfs_seq_create(struct dentry *parent, const char *name,
+@@ -546,11 +558,11 @@ extern int ldebugfs_seq_create(struct dentry *parent, const char *name,
+ 			       void *data);
+ extern int lprocfs_seq_create(struct proc_dir_entry *parent, const char *name,
+ 			      mode_t mode,
+-			      const struct file_operations *seq_fops,
++			      const struct proc_ops *seq_fops,
+ 			      void *data);
+ extern int lprocfs_obd_seq_create(struct obd_device *dev, const char *name,
+ 				  mode_t mode,
+-				  const struct file_operations *seq_fops,
++				  const struct proc_ops *seq_fops,
+ 				  void *data);
+ 
+ /* Generic callbacks */
+@@ -678,13 +690,12 @@ static int name##_single_open(struct inode *inode, struct file *file)	\
+ 	return single_open(file, name##_seq_show,			\
+ 			   inode->i_private ? : PDE_DATA(inode));	\
+ }									\
+-static const struct file_operations name##_fops = {			\
+-	.owner	 = THIS_MODULE,						\
+-	.open	 = name##_single_open,					\
+-	.read	 = seq_read,						\
+-	.write	 = custom_seq_write,					\
+-	.llseek	 = seq_lseek,						\
+-	.release = lprocfs_single_release,				\
++static const struct proc_ops name##_fops = {			\
++	.proc_open	 = name##_single_open,				\
++	.proc_read	 = seq_read,					\
++	.proc_write	 = custom_seq_write,				\
++	.proc_lseek	 = seq_lseek,					\
++	.proc_release = lprocfs_single_release,				\
+ }
+ 
+ #define LPROC_SEQ_FOPS_RO(name)		__LPROC_SEQ_FOPS(name, NULL)
+@@ -724,10 +735,10 @@ static const struct file_operations name##_fops = {			\
+ 		return single_open(file, NULL,				\
+ 				   inode->i_private ? : PDE_DATA(inode));\
+ 	}								\
+-	static const struct file_operations name##_##type##_fops = {	\
+-		.open	 = name##_##type##_open,			\
+-		.write	 = name##_##type##_write,			\
+-		.release = lprocfs_single_release,			\
++	static const struct proc_ops name##_##type##_fops = {	\
++		.proc_open	 = name##_##type##_open,		\
++		.proc_write	 = name##_##type##_write,		\
++		.proc_release = lprocfs_single_release,			\
+ 	};
+ 
+ struct lustre_attr {
+@@ -866,7 +877,7 @@ static inline int lprocfs_exp_cleanup(struct obd_export *exp)
+ { return 0; }
+ static inline struct proc_dir_entry *
+ lprocfs_add_simple(struct proc_dir_entry *root, char *name,
+-		   void *data, const struct file_operations *fops)
++		   void *data, const struct proc_ops *fops)
+ {return 0; }
+ static inline struct proc_dir_entry *
+ lprocfs_add_symlink(const char *name, struct proc_dir_entry *parent,
+diff --git a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_internal.h b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_internal.h
+index 83cd89e5960f..779dec55882e 100644
+--- a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_internal.h
++++ b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_internal.h
+@@ -337,7 +337,7 @@ enum ldlm_policy_res {
+ 
+ static inline void
+ ldlm_add_var(struct lprocfs_vars *vars, struct proc_dir_entry *proc_dir,
+-	     const char *name, void *data, const struct file_operations *ops)
++	     const char *name, void *data, const struct proc_ops *ops)
+ {
+ 	snprintf((char *)vars->name, MAX_STRING_SIZE, "%s", name);
+ 	vars->data = data;
+diff --git a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
+index 8467a9b8abff..2a55b2b24239 100644
+--- a/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
++++ b/drivers/staging/lustrefsx/lustre/ldlm/ldlm_resource.c
+@@ -147,13 +147,12 @@ static int seq_watermark_open(struct inode *inode, struct file *file)
+ 	return single_open(file, seq_watermark_show, PDE_DATA(inode));
+ }
+ 
+-static const struct file_operations ldlm_watermark_fops = {
+-	.owner		= THIS_MODULE,
+-	.open		= seq_watermark_open,
+-	.read		= seq_read,
+-	.write		= seq_watermark_write,
+-	.llseek		= seq_lseek,
+-	.release	= lprocfs_single_release,
++static const struct proc_ops ldlm_watermark_fops = {
++	.proc_open		= seq_watermark_open,
++	.proc_read		= seq_read,
++	.proc_write		= seq_watermark_write,
++	.proc_lseek		= seq_lseek,
++	.proc_release		= lprocfs_single_release,
+ };
+ 
+ static int seq_granted_show(struct seq_file *m, void *data)
+@@ -168,12 +167,11 @@ static int seq_granted_open(struct inode *inode, struct file *file)
+ 	return single_open(file, seq_granted_show, PDE_DATA(inode));
+ }
+ 
+-static const struct file_operations ldlm_granted_fops = {
+-	.owner	= THIS_MODULE,
+-	.open	= seq_granted_open,
+-	.read	= seq_read,
+-	.llseek	= seq_lseek,
+-	.release = seq_release,
++static const struct proc_ops ldlm_granted_fops = {
++	.proc_open	= seq_granted_open,
++	.proc_read	= seq_read,
++	.proc_lseek	= seq_lseek,
++	.proc_release	= seq_release,
+ };
+ 
+ #endif /* HAVE_SERVER_SUPPORT */
+diff --git a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+index 93c767207f3e..3c3f5ddc4dfa 100755
+--- a/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
++++ b/drivers/staging/lustrefsx/lustre/llite/lproc_llite.c
+@@ -47,9 +47,9 @@ struct proc_dir_entry *proc_lustre_fs_root;
+ 
+ #ifdef CONFIG_PROC_FS
+ /* /proc/lustre/llite mount point registration */
+-static const struct file_operations ll_rw_extents_stats_fops;
+-static const struct file_operations ll_rw_extents_stats_pp_fops;
+-static const struct file_operations ll_rw_offset_stats_fops;
++static const struct proc_ops ll_rw_extents_stats_fops;
++static const struct proc_ops ll_rw_extents_stats_pp_fops;
++static const struct proc_ops ll_rw_offset_stats_fops;
+ static __s64 ll_stats_pid_write(const char __user *buf, size_t len);
+ 
+ static int ll_blksize_seq_show(struct seq_file *m, void *v)
+diff --git a/drivers/staging/lustrefsx/lustre/llite/vvp_dev.c b/drivers/staging/lustrefsx/lustre/llite/vvp_dev.c
+index ab92d303fc1e..15eb72a35245 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/vvp_dev.c
++++ b/drivers/staging/lustrefsx/lustre/llite/vvp_dev.c
+@@ -646,10 +646,9 @@ static int vvp_dump_pgcache_seq_open(struct inode *inode, struct file *filp)
+ 	return result;
+ }
+ 
+-const struct file_operations vvp_dump_pgcache_file_ops = {
+-        .owner   = THIS_MODULE,
+-        .open    = vvp_dump_pgcache_seq_open,
+-        .read    = seq_read,
+-        .llseek	 = seq_lseek,
+-        .release = seq_release,
++const struct proc_ops vvp_dump_pgcache_file_ops = {
++        .proc_open    = vvp_dump_pgcache_seq_open,
++        .proc_read    = seq_read,
++        .proc_lseek   = seq_lseek,
++        .proc_release = seq_release,
+ };
+diff --git a/drivers/staging/lustrefsx/lustre/llite/vvp_internal.h b/drivers/staging/lustrefsx/lustre/llite/vvp_internal.h
+index 645b4b5cfca6..9973d646ae70 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/vvp_internal.h
++++ b/drivers/staging/lustrefsx/lustre/llite/vvp_internal.h
+@@ -328,6 +328,6 @@ struct lu_object *vvp_object_alloc(const struct lu_env *env,
+ int vvp_global_init(void);
+ void vvp_global_fini(void);
+ 
+-extern const struct file_operations vvp_dump_pgcache_file_ops;
++extern const struct proc_ops vvp_dump_pgcache_file_ops;
+ 
+ #endif /* VVP_INTERNAL_H */
+diff --git a/drivers/staging/lustrefsx/lustre/lmv/lmv_internal.h b/drivers/staging/lustrefsx/lustre/lmv/lmv_internal.h
+index a9dd6644a269..2a0c324856fe 100644
+--- a/drivers/staging/lustrefsx/lustre/lmv/lmv_internal.h
++++ b/drivers/staging/lustrefsx/lustre/lmv/lmv_internal.h
+@@ -156,6 +156,6 @@ struct lmv_tgt_desc
+ #ifdef CONFIG_PROC_FS
+ extern struct lprocfs_vars lprocfs_lmv_obd_vars[];
+ #endif
+-extern struct file_operations lmv_proc_target_fops;
++extern struct proc_ops lmv_proc_target_fops;
+ 
+ #endif
+diff --git a/drivers/staging/lustrefsx/lustre/lmv/lproc_lmv.c b/drivers/staging/lustrefsx/lustre/lmv/lproc_lmv.c
+index cefa71d34a12..e79781d444fb 100644
+--- a/drivers/staging/lustrefsx/lustre/lmv/lproc_lmv.c
++++ b/drivers/staging/lustrefsx/lustre/lmv/lproc_lmv.c
+@@ -162,11 +162,10 @@ struct lprocfs_vars lprocfs_lmv_obd_vars[] = {
+ 	{ NULL }
+ };
+ 
+-struct file_operations lmv_proc_target_fops = {
+-        .owner                = THIS_MODULE,
+-        .open                 = lmv_target_seq_open,
+-        .read                 = seq_read,
+-        .llseek               = seq_lseek,
+-        .release              = seq_release,
++struct proc_ops lmv_proc_target_fops = {
++        .proc_open                 = lmv_target_seq_open,
++        .proc_read                 = seq_read,
++        .proc_lseek                = seq_lseek,
++        .proc_release              = seq_release,
+ };
+ #endif /* CONFIG_PROC_FS */
+diff --git a/drivers/staging/lustrefsx/lustre/lov/lov_internal.h b/drivers/staging/lustrefsx/lustre/lov/lov_internal.h
+index 4ced4d31f76b..7ff0ffe81026 100644
+--- a/drivers/staging/lustrefsx/lustre/lov/lov_internal.h
++++ b/drivers/staging/lustrefsx/lustre/lov/lov_internal.h
+@@ -298,7 +298,7 @@ void lsm_free_plain(struct lov_stripe_md *lsm);
+ void dump_lsm(unsigned int level, const struct lov_stripe_md *lsm);
+ 
+ /* lproc_lov.c */
+-extern struct file_operations lov_proc_target_fops;
++extern struct proc_ops lov_proc_target_fops;
+ #ifdef CONFIG_PROC_FS
+ extern struct lprocfs_vars lprocfs_lov_obd_vars[];
+ #endif
+diff --git a/drivers/staging/lustrefsx/lustre/lov/lov_pool.c b/drivers/staging/lustrefsx/lustre/lov/lov_pool.c
+index 7a2b9ac32e92..066b57df0948 100644
+--- a/drivers/staging/lustrefsx/lustre/lov/lov_pool.c
++++ b/drivers/staging/lustrefsx/lustre/lov/lov_pool.c
+@@ -286,11 +286,11 @@ static int pool_proc_open(struct inode *inode, struct file *file)
+         return rc;
+ }
+ 
+-static struct file_operations pool_proc_operations = {
+-        .open           = pool_proc_open,
+-        .read           = seq_read,
+-        .llseek         = seq_lseek,
+-        .release        = seq_release,
++static struct proc_ops pool_proc_operations = {
++        .proc_open           = pool_proc_open,
++        .proc_read           = seq_read,
++        .proc_lseek          = seq_lseek,
++        .proc_release        = seq_release,
+ };
+ #endif /* CONFIG_PROC_FS */
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c b/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
+index c101c64b66c2..8610727f9b9e 100644
+--- a/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
++++ b/drivers/staging/lustrefsx/lustre/lov/lproc_lov.c
+@@ -322,11 +322,10 @@ struct lprocfs_vars lprocfs_lov_obd_vars[] = {
+ 	{ NULL }
+ };
+ 
+-struct file_operations lov_proc_target_fops = {
+-        .owner   = THIS_MODULE,
+-        .open    = lov_target_seq_open,
+-        .read    = seq_read,
+-        .llseek  = seq_lseek,
+-        .release = lprocfs_seq_release,
++struct proc_ops lov_proc_target_fops = {
++        .proc_open    = lov_target_seq_open,
++        .proc_read    = seq_read,
++        .proc_lseek   = seq_lseek,
++        .proc_release = lprocfs_seq_release,
+ };
+ #endif /* CONFIG_PROC_FS */
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
+index a341794dc422..74351918dc5b 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_jobstats.c
+@@ -564,13 +564,12 @@ static int lprocfs_jobstats_seq_release(struct inode *inode, struct file *file)
+ 	return lprocfs_seq_release(inode, file);
+ }
+ 
+-static const struct file_operations lprocfs_jobstats_seq_fops = {
+-	.owner   = THIS_MODULE,
+-	.open    = lprocfs_jobstats_seq_open,
+-	.read    = seq_read,
+-	.write   = lprocfs_jobstats_seq_write,
+-	.llseek  = seq_lseek,
+-	.release = lprocfs_jobstats_seq_release,
++static const struct proc_ops lprocfs_jobstats_seq_fops = {
++	.proc_open    = lprocfs_jobstats_seq_open,
++	.proc_read    = seq_read,
++	.proc_write   = lprocfs_jobstats_seq_write,
++	.proc_lseek   = seq_lseek,
++	.proc_release = lprocfs_jobstats_seq_release,
+ };
+ 
+ int lprocfs_job_stats_init(struct obd_device *obd, int cntr_num,
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+index d2d72dcde41d..07801fa617a9 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lprocfs_status.c
+@@ -62,7 +62,7 @@ EXPORT_SYMBOL(lprocfs_seq_release);
+ 
+ struct proc_dir_entry *
+ lprocfs_add_simple(struct proc_dir_entry *root, char *name,
+-		   void *data, const struct file_operations *fops)
++		   void *data, const struct proc_ops *fops)
+ {
+ 	struct proc_dir_entry *proc;
+ 	mode_t mode = 0;
+@@ -70,9 +70,9 @@ lprocfs_add_simple(struct proc_dir_entry *root, char *name,
+ 	if (root == NULL || name == NULL || fops == NULL)
+                 return ERR_PTR(-EINVAL);
+ 
+-	if (fops->read)
++	if (fops->proc_read)
+ 		mode = 0444;
+-	if (fops->write)
++	if (fops->proc_write)
+ 		mode |= 0200;
+ 	proc = proc_create_data(name, mode, root, fops, data);
+ 	if (!proc) {
+@@ -112,9 +112,9 @@ struct proc_dir_entry *lprocfs_add_symlink(const char *name,
+ }
+ EXPORT_SYMBOL(lprocfs_add_symlink);
+ 
+-static const struct file_operations lprocfs_generic_fops = { };
++static const struct file_operations ldebugfs_empty_ops = { };
+ 
+-int ldebugfs_add_vars(struct dentry *parent, struct lprocfs_vars *list,
++int ldebugfs_add_vars(struct dentry *parent, struct ldebugfs_vars *list,
+ 		      void *data)
+ {
+ 	if (IS_ERR_OR_NULL(parent) || IS_ERR_OR_NULL(list))
+@@ -134,7 +134,7 @@ int ldebugfs_add_vars(struct dentry *parent, struct lprocfs_vars *list,
+ 		}
+ 		entry = debugfs_create_file(list->name, mode, parent,
+ 					    list->data ? : data,
+-					    list->fops ? : &lprocfs_generic_fops);
++					    list->fops ? : &ldebugfs_empty_ops);
+ 		if (IS_ERR_OR_NULL(entry))
+ 			return entry ? PTR_ERR(entry) : -ENOMEM;
+ 		list++;
+@@ -143,6 +143,8 @@ int ldebugfs_add_vars(struct dentry *parent, struct lprocfs_vars *list,
+ }
+ EXPORT_SYMBOL_GPL(ldebugfs_add_vars);
+ 
++static const struct proc_ops lprocfs_empty_ops = { };
++
+ /**
+  * Add /proc entries.
+  *
+@@ -168,13 +170,13 @@ lprocfs_add_vars(struct proc_dir_entry *root, struct lprocfs_vars *list,
+ 		if (list->proc_mode != 0000) {
+ 			mode = list->proc_mode;
+ 		} else if (list->fops) {
+-			if (list->fops->read)
++			if (list->fops->proc_read)
+ 				mode = 0444;
+-			if (list->fops->write)
++			if (list->fops->proc_write)
+ 				mode |= 0200;
+ 		}
+ 		proc = proc_create_data(list->name, mode, root,
+-					list->fops ?: &lprocfs_generic_fops,
++					list->fops ?: &lprocfs_empty_ops,
+ 					list->data ?: data);
+ 		if (proc == NULL)
+ 			return -ENOMEM;
+@@ -301,7 +303,7 @@ void lprocfs_remove_proc_entry(const char *name, struct proc_dir_entry *parent)
+ EXPORT_SYMBOL(lprocfs_remove_proc_entry);
+ 
+ struct dentry *ldebugfs_register(const char *name, struct dentry *parent,
+-				 struct lprocfs_vars *list, void *data)
++				 struct ldebugfs_vars *list, void *data)
+ {
+ 	struct dentry *entry;
+ 
+@@ -1497,7 +1499,15 @@ static int lprocfs_stats_seq_open(struct inode *inode, struct file *file)
+ 	return 0;
+ }
+ 
+-static const struct file_operations lprocfs_stats_seq_fops = {
++static const struct proc_ops lprocfs_stats_seq_fops = {
++        .proc_open    = lprocfs_stats_seq_open,
++        .proc_read    = seq_read,
++        .proc_write   = lprocfs_stats_seq_write,
++        .proc_lseek   = seq_lseek,
++        .proc_release = lprocfs_seq_release,
++};
++
++static const struct file_operations ldebugfs_stats_seq_fops = {
+         .owner   = THIS_MODULE,
+         .open    = lprocfs_stats_seq_open,
+         .read    = seq_read,
+@@ -1514,7 +1524,7 @@ int ldebugfs_register_stats(struct dentry *parent, const char *name,
+ 	LASSERT(!IS_ERR_OR_NULL(parent));
+ 
+ 	entry = debugfs_create_file(name, 0644, parent, stats,
+-				    &lprocfs_stats_seq_fops);
++				    &ldebugfs_stats_seq_fops);
+ 	if (IS_ERR_OR_NULL(entry))
+ 		return entry ? PTR_ERR(entry) : -ENOMEM;
+ 
+@@ -2199,14 +2209,14 @@ EXPORT_SYMBOL_GPL(ldebugfs_seq_create);
+ int lprocfs_seq_create(struct proc_dir_entry *parent,
+ 		       const char *name,
+ 		       mode_t mode,
+-		       const struct file_operations *seq_fops,
++		       const struct proc_ops *seq_fops,
+ 		       void *data)
+ {
+ 	struct proc_dir_entry *entry;
+ 	ENTRY;
+ 
+ 	/* Disallow secretly (un)writable entries. */
+-	LASSERT((seq_fops->write == NULL) == ((mode & 0222) == 0));
++	LASSERT((seq_fops->proc_write == NULL) == ((mode & 0222) == 0));
+ 
+ 	entry = proc_create_data(name, mode, parent, seq_fops, data);
+ 
+@@ -2220,7 +2230,7 @@ EXPORT_SYMBOL(lprocfs_seq_create);
+ int lprocfs_obd_seq_create(struct obd_device *dev,
+ 			   const char *name,
+ 			   mode_t mode,
+-			   const struct file_operations *seq_fops,
++			   const struct proc_ops *seq_fops,
+ 			   void *data)
+ {
+         return (lprocfs_seq_create(dev->obd_proc_entry, name,
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/lu_ref.c b/drivers/staging/lustrefsx/lustre/obdclass/lu_ref.c
+index bef29033f30e..80d644f1092e 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/lu_ref.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/lu_ref.c
+@@ -402,12 +402,11 @@ static int lu_ref_seq_release(struct inode *inode, struct file *file)
+ 	return seq_release(inode, file);
+ }
+ 
+-static struct file_operations lu_ref_dump_fops = {
+-        .owner   = THIS_MODULE,
+-        .open    = lu_ref_seq_open,
+-        .read    = seq_read,
+-        .llseek  = seq_lseek,
+-        .release = lu_ref_seq_release
++static struct proc_ops lu_ref_dump_fops = {
++        .proc_open    = lu_ref_seq_open,
++        .proc_read    = seq_read,
++        .proc_lseek   = seq_lseek,
++        .proc_release = lu_ref_seq_release
+ };
+ 
+ #endif /* CONFIG_PROC_FS */
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+index 46b2b941bae5..8182d872a8ce 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+@@ -1304,7 +1304,7 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
+ 		RETURN(-EINVAL);
+ 	}
+ 
+-	/* fake a seq file so that var->fops->write can work... */
++	/* fake a seq file so that var->fops->proc_write can work... */
+ 	fakefile.private_data = &fake_seqfile;
+ 	fake_seqfile.private = data;
+ 	/* e.g. tunefs.lustre --param mdt.group_upcall=foo /r/tmp/lustre-mdt
+@@ -1338,12 +1338,13 @@ int class_process_proc_param(char *prefix, struct lprocfs_vars *lvars,
+ 				matched++;
+ 				rc = -EROFS;
+ 
+-				if (var->fops && var->fops->write) {
++				if (var->fops && var->fops->proc_write) {
+ 					mm_segment_t oldfs;
+ 					oldfs = get_fs();
+ 					set_fs(KERNEL_DS);
+-					rc = (var->fops->write)(&fakefile, sval,
+-								vallen, NULL);
++					rc = (var->fops->proc_write)(&fakefile,
++								sval, vallen,
++								NULL);
+ 					set_fs(oldfs);
+ 				}
+ 				break;
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+index 711c77650a56..e13b9e2e4c8f 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/lproc_ptlrpc.c
+@@ -1129,12 +1129,11 @@ void ptlrpc_lprocfs_register_service(struct proc_dir_entry *entry,
+ 		  .data = svc },
+ 		{ NULL }
+         };
+-        static struct file_operations req_history_fops = {
+-                .owner       = THIS_MODULE,
+-                .open        = ptlrpc_lprocfs_svc_req_history_open,
+-                .read        = seq_read,
+-                .llseek      = seq_lseek,
+-                .release     = lprocfs_seq_release,
++        static struct proc_ops req_history_fops = {
++                .proc_open        = ptlrpc_lprocfs_svc_req_history_open,
++                .proc_read        = seq_read,
++                .proc_lseek       = seq_lseek,
++                .proc_release     = lprocfs_seq_release,
+         };
+ 
+         int rc;
+-- 
+2.32.0
+

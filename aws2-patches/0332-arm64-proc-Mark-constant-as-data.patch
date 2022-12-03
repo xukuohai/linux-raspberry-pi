@@ -1,0 +1,31 @@
+From 064093f8537133404c29182264738e112410aa02 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Sun, 29 Mar 2020 16:19:37 +0100
+Subject: arm64: proc: Mark constant as data
+
+Label __idmap_kpti_flag represents the location of a constant.
+Mark it as data symbol.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/mm/proc.S | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/arch/arm64/mm/proc.S b/arch/arm64/mm/proc.S
+index aacc7eab9b2f..72d2181ae38d 100644
+--- a/arch/arm64/mm/proc.S
++++ b/arch/arm64/mm/proc.S
+@@ -222,8 +222,8 @@ SYM_FUNC_END(idmap_cpu_replace_ttbr1)
+  *
+  * Called exactly once from stop_machine context by each CPU found during boot.
+  */
+-__idmap_kpti_flag:
+-	.long	1
++SYM_DATA_LOCAL(__idmap_kpti_flag, .long	1)
++
+ SYM_FUNC_START(idmap_kpti_install_ng_mappings)
+ 	cpu		.req	w0
+ 	num_cpus	.req	w1
+-- 
+2.32.0
+

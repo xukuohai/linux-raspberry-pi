@@ -1,0 +1,82 @@
+From f80eff5d9325ea07204d13487a74ceb69b8cda04 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 13 Oct 2020 22:21:47 +0000
+Subject: lustre: handle removal of NR_UNSTABLE_NFS
+
+    LU-13783 osc: handle removal of NR_UNSTABLE_NFS
+
+    In Linux 5.8 the NR_UNSTABLE_NFS page counters are go.  All pages that
+    have been writen but are not yet safe are now counted in NR_WRITEBACK.
+
+    So change osc_page to count in NR_WRITEBACK, but if NR_UNSTABLE_NFS
+    still exists in the kernel, use a #define to direct the updates to
+    that counter.
+
+    Signed-off-by: Mr NeilBrown <neilb@suse.de>
+    Change-Id: I49cbc267fafaee949f45b2e559511aedcf4d8fed
+    Reviewed-on: https://review.whamcloud.com/39260
+    Tested-by: jenkins <devops@whamcloud.com>
+    Reviewed-by: Shaun Tancheff <shaun.tancheff@hpe.com>
+    Tested-by: Maloo <maloo@whamcloud.com>
+    Reviewed-by: James Simmons <jsimmons@infradead.org>
+    Reviewed-by: Oleg Drokin <green@whamcloud.com>
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h              |  3 +++
+ drivers/staging/lustrefsx/lustre/osc/osc_page.c | 11 +++++++++--
+ 2 files changed, 12 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index d040e2a78605..4359ad014348 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -922,6 +922,9 @@
+ /* __add_wait_queue_exclusive exists */
+ /* #undef HAVE___ADD_WAIT_QUEUE_EXCLUSIVE */
+ 
++/* NR_UNSTABLE_NFS is still in use */
++/* #undef HAVE_NR_UNSTABLE_NFS */
++
+ /* ext4_journal_start takes 3 arguments */
+ /* #undef JOURNAL_START_HAS_3ARGS */
+ 
+diff --git a/drivers/staging/lustrefsx/lustre/osc/osc_page.c b/drivers/staging/lustrefsx/lustre/osc/osc_page.c
+index 20ed2d75db79..c89d11333357 100644
+--- a/drivers/staging/lustrefsx/lustre/osc/osc_page.c
++++ b/drivers/staging/lustrefsx/lustre/osc/osc_page.c
+@@ -879,6 +879,13 @@ void osc_lru_unreserve(struct client_obd *cli, unsigned long npages)
+  * In practice this can work pretty good because the pages in the same RPC
+  * are likely from the same page zone.
+  */
++#ifdef HAVE_NR_UNSTABLE_NFS
++/* Old kernels use a separate counter for unstable pages,
++ * newer kernels treat them like any other writeback.
++ */
++#define NR_WRITEBACK NR_UNSTABLE_NFS
++#endif
++
+ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
+ 					    int factor)
+ {
+@@ -898,7 +905,7 @@ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
+ 		}
+ 
+ 		if (count > 0) {
+-			mod_zone_page_state(zone, NR_UNSTABLE_NFS,
++			mod_zone_page_state(zone, NR_WRITEBACK,
+ 					    factor * count);
+ 			count = 0;
+ 		}
+@@ -906,7 +913,7 @@ static inline void unstable_page_accounting(struct ptlrpc_bulk_desc *desc,
+ 		++count;
+ 	}
+ 	if (count > 0)
+-		mod_zone_page_state(zone, NR_UNSTABLE_NFS, factor * count);
++		mod_zone_page_state(zone, NR_WRITEBACK, factor * count);
+ }
+ 
+ static inline void add_unstable_page_accounting(struct ptlrpc_bulk_desc *desc)
+-- 
+2.32.0
+

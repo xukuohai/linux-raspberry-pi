@@ -1,0 +1,122 @@
+From ee030974f596db2b09aca8a125d78443cc1f3bd3 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 4 Mar 2019 19:39:33 +0000
+Subject: lustre: change printf format strings for 64bit time in struct inode
+
+In kernel versions >= 4.18, struct inode uses timespec64 to store
+{c,m,a}time. Change printf format strings in that case, from
+%lu to %llu.
+
+Linux commit: 95582b00838837fc ("vfs: change inode times to use struct
+timespec64")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/include/lustre_compat.h | 6 ++++++
+ drivers/staging/lustrefsx/lustre/llite/llite_lib.c       | 5 +++--
+ drivers/staging/lustrefsx/lustre/llite/namei.c           | 4 ++--
+ drivers/staging/lustrefsx/lustre/lmv/lmv_obd.c           | 3 ++-
+ drivers/staging/lustrefsx/lustre/mdc/mdc_reint.c         | 3 ++-
+ drivers/staging/lustrefsx/lustre/obdclass/obdo.c         | 3 ++-
+ 6 files changed, 17 insertions(+), 7 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+index ef9ec2af5390..e44cd462079d 100644
+--- a/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
++++ b/drivers/staging/lustrefsx/lustre/include/lustre_compat.h
+@@ -103,6 +103,12 @@ static inline void ll_set_fs_pwd(struct fs_struct *fs, struct vfsmount *mnt,
+ 
+ #define LTIME_S(time)                   (time.tv_sec)
+ 
++#ifdef HAVE_INODE_TIME_64BIT
++#define LTIME_FMT "%llu"
++#else
++#define LTIME_FMT "%lu"
++#endif
++
+ #ifdef HAVE_GENERIC_PERMISSION_2ARGS
+ # define ll_generic_permission(inode, mask, flags, check_acl) \
+ 	 generic_permission(inode, mask)
+diff --git a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+index b1dbb7d0c317..833d68d16381 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
++++ b/drivers/staging/lustrefsx/lustre/llite/llite_lib.c
+@@ -1611,7 +1611,8 @@ int ll_setattr_raw(struct dentry *dentry, struct iattr *attr, bool hsm_import)
+         }
+ 
+         if (attr->ia_valid & (ATTR_MTIME | ATTR_CTIME))
+-		CDEBUG(D_INODE, "setting mtime %lu, ctime %lu, now = %llu\n",
++		CDEBUG(D_INODE, "setting mtime " LTIME_FMT ", ctime "
++		       LTIME_FMT ", now = %llu\n",
+                        LTIME_S(attr->ia_mtime), LTIME_S(attr->ia_ctime),
+ 		       (s64)ktime_get_real_seconds());
+ 
+@@ -1894,7 +1895,7 @@ int ll_update_inode(struct inode *inode, struct lustre_md *md)
+ 
+ 	if (body->mbo_valid & OBD_MD_FLMTIME) {
+ 		if (body->mbo_mtime > LTIME_S(inode->i_mtime)) {
+-			CDEBUG(D_INODE, "setting ino %lu mtime from %lu "
++			CDEBUG(D_INODE, "setting ino %lu mtime from " LTIME_FMT
+ 			       "to %llu\n", inode->i_ino,
+ 			       LTIME_S(inode->i_mtime), body->mbo_mtime);
+ 			LTIME_S(inode->i_mtime) = body->mbo_mtime;
+diff --git a/drivers/staging/lustrefsx/lustre/llite/namei.c b/drivers/staging/lustrefsx/lustre/llite/namei.c
+index bf8b76efefb8..81d95cca601e 100644
+--- a/drivers/staging/lustrefsx/lustre/llite/namei.c
++++ b/drivers/staging/lustrefsx/lustre/llite/namei.c
+@@ -1005,8 +1005,8 @@ void ll_update_times(struct ptlrpc_request *request, struct inode *inode)
+ 	LASSERT(body);
+ 	if (body->mbo_valid & OBD_MD_FLMTIME &&
+ 	    body->mbo_mtime > LTIME_S(inode->i_mtime)) {
+-		CDEBUG(D_INODE, "setting fid "DFID" mtime from %lu to %llu"
+-		       "\n", PFID(ll_inode2fid(inode)),
++		CDEBUG(D_INODE, "setting fid "DFID" mtime from " LTIME_FMT
++		       " to %llu\n", PFID(ll_inode2fid(inode)),
+ 		       LTIME_S(inode->i_mtime), body->mbo_mtime);
+ 		LTIME_S(inode->i_mtime) = body->mbo_mtime;
+ 	}
+diff --git a/drivers/staging/lustrefsx/lustre/lmv/lmv_obd.c b/drivers/staging/lustrefsx/lustre/lmv/lmv_obd.c
+index 3fed10fc1a1c..15589c5b9c76 100644
+--- a/drivers/staging/lustrefsx/lustre/lmv/lmv_obd.c
++++ b/drivers/staging/lustrefsx/lustre/lmv/lmv_obd.c
+@@ -3097,7 +3097,8 @@ static int lmv_merge_attr(struct obd_export *exp,
+ 		struct inode *inode = lsm->lsm_md_oinfo[i].lmo_root;
+ 
+ 		CDEBUG(D_INFO, ""DFID" size %llu, blocks %llu nlink %u,"
+-		       " atime %lu ctime %lu, mtime %lu.\n",
++		       " atime " LTIME_FMT " ctime " LTIME_FMT
++		       ", mtime " LTIME_FMT ".\n",
+ 		       PFID(&lsm->lsm_md_oinfo[i].lmo_fid),
+ 		       i_size_read(inode), (unsigned long long)inode->i_blocks,
+ 		       inode->i_nlink, LTIME_S(inode->i_atime),
+diff --git a/drivers/staging/lustrefsx/lustre/mdc/mdc_reint.c b/drivers/staging/lustrefsx/lustre/mdc/mdc_reint.c
+index 75ed56815330..5b7be3d8af58 100644
+--- a/drivers/staging/lustrefsx/lustre/mdc/mdc_reint.c
++++ b/drivers/staging/lustrefsx/lustre/mdc/mdc_reint.c
+@@ -131,7 +131,8 @@ int mdc_setattr(struct obd_export *exp, struct md_op_data *op_data,
+ 	}
+ 
+         if (op_data->op_attr.ia_valid & (ATTR_MTIME | ATTR_CTIME))
+-		CDEBUG(D_INODE, "setting mtime %ld, ctime %ld\n",
++		CDEBUG(D_INODE, "setting mtime " LTIME_FMT ", ctime "
++		       LTIME_FMT "\n",
+                        LTIME_S(op_data->op_attr.ia_mtime),
+                        LTIME_S(op_data->op_attr.ia_ctime));
+ 	mdc_setattr_pack(req, op_data, ea, ealen);
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obdo.c b/drivers/staging/lustrefsx/lustre/obdclass/obdo.c
+index dddb24b036fe..a7f7be397322 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obdo.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obdo.c
+@@ -69,7 +69,8 @@ void obdo_from_inode(struct obdo *dst, struct inode *src, u64 valid)
+ 	u64 newvalid = 0;
+ 
+ 	if (valid & (OBD_MD_FLCTIME | OBD_MD_FLMTIME))
+-		CDEBUG(D_INODE, "valid %#llx, new time %lu/%lu\n",
++		CDEBUG(D_INODE, "valid %#llx, new time "
++			LTIME_FMT "/" LTIME_FMT "\n",
+ 			valid, LTIME_S(src->i_mtime),
+ 			LTIME_S(src->i_ctime));
+ 
+-- 
+2.32.0
+

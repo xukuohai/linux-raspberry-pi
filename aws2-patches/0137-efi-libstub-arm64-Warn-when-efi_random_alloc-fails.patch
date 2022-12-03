@@ -1,0 +1,33 @@
+From 9ce8e4843575c81159c7101175e11a52c6e894ae Mon Sep 17 00:00:00 2001
+From: Ard Biesheuvel <ardb@kernel.org>
+Date: Mon, 26 Jul 2021 16:51:55 +0200
+Subject: efi/libstub: arm64: Warn when efi_random_alloc() fails
+
+Randomization of the physical load address of the kernel image relies on
+efi_random_alloc() returning successfully, and currently, we ignore any
+failures and just carry on, using the ordinary, non-randomized page
+allocator routine. This means we never find out if a failure occurs,
+which could harm security, so let's at least warn about this condition.
+
+Signed-off-by: Ard Biesheuvel <ardb@kernel.org>
+Signed-off-by: Benjamin Herrenschmidt <benh@amazon.com>
+---
+ drivers/firmware/efi/libstub/arm64-stub.c | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/drivers/firmware/efi/libstub/arm64-stub.c b/drivers/firmware/efi/libstub/arm64-stub.c
+index 415a971e7694..25d48e628daf 100644
+--- a/drivers/firmware/efi/libstub/arm64-stub.c
++++ b/drivers/firmware/efi/libstub/arm64-stub.c
+@@ -134,6 +134,8 @@ efi_status_t handle_kernel_image(unsigned long *image_addr,
+ 		 */
+ 		status = efi_random_alloc(*reserve_size, min_kimg_align,
+ 					  reserve_addr, phys_seed);
++		if (status != EFI_SUCCESS)
++			efi_warn("efi_random_alloc() failed: 0x%lx\n", status);
+ 	} else {
+ 		status = EFI_OUT_OF_RESOURCES;
+ 	}
+-- 
+2.32.0
+

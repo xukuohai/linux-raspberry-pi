@@ -1,0 +1,43 @@
+From 2d8a51a50af92869f9f13134c983731f0952b4cf Mon Sep 17 00:00:00 2001
+From: Jon Hunter <jonathanh@nvidia.com>
+Date: Tue, 20 Apr 2021 14:24:19 +0100
+Subject: ptp: Don't print an error if ptp_kvm is not supported
+
+Commit 300bb1fe7671 ("ptp: arm/arm64: Enable ptp_kvm for arm/arm64")
+enable ptp_kvm support for ARM platforms and for any ARM platform that
+does not support this, the following error message is displayed ...
+
+ ERR KERN fail to initialize ptp_kvm
+
+For platforms that do not support ptp_kvm this error is a bit misleading
+and so fix this by only printing this message if the error returned by
+kvm_arch_ptp_init() is not -EOPNOTSUPP. Note that -EOPNOTSUPP is only
+returned by ARM platforms today if ptp_kvm is not supported.
+
+Fixes: 300bb1fe7671 ("ptp: arm/arm64: Enable ptp_kvm for arm/arm64")
+Signed-off-by: Jon Hunter <jonathanh@nvidia.com>
+Acked-by: Richard Cochran <richardcochran@gmail.com>
+Signed-off-by: Marc Zyngier <maz@kernel.org>
+Link: https://lore.kernel.org/r/20210420132419.1318148-1-jonathanh@nvidia.com
+(cherry picked from commit a86ed2cfa13c5175eb082c50a644f6bf29ac65cc)
+---
+ drivers/ptp/ptp_kvm_common.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/ptp/ptp_kvm_common.c b/drivers/ptp/ptp_kvm_common.c
+index 721ddcede5e1..fcae32f56f25 100644
+--- a/drivers/ptp/ptp_kvm_common.c
++++ b/drivers/ptp/ptp_kvm_common.c
+@@ -138,7 +138,8 @@ static int __init ptp_kvm_init(void)
+ 
+ 	ret = kvm_arch_ptp_init();
+ 	if (ret) {
+-		pr_err("fail to initialize ptp_kvm");
++		if (ret != -EOPNOTSUPP)
++			pr_err("fail to initialize ptp_kvm");
+ 		return ret;
+ 	}
+ 
+-- 
+2.32.0
+

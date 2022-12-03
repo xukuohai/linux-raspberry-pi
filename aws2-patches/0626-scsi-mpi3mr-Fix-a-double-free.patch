@@ -1,0 +1,51 @@
+From 2e5fd1a9e79bafb94140133e19a9120abfb3765a Mon Sep 17 00:00:00 2001
+From: Tomas Henzl <thenzl@redhat.com>
+Date: Tue, 8 Jun 2021 16:57:12 +0200
+Subject: scsi: mpi3mr: Fix a double free
+
+Fix a double free, scsi_tgt_priv_data will be freed in
+mpi3mr_target_destroy() so remove the kfree() from mpi3mr_target_alloc().
+I've also removed few unneeded initialisations.
+
+Link: https://lore.kernel.org/r/20210608145712.16386-1-thenzl@redhat.com
+Acked-by: Kashyap Desai <kashyap.desai@broadcom.com>
+Signed-off-by: Tomas Henzl <thenzl@redhat.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+(cherry picked from commit d3d61f9c8c2dbe7e5e6736219afdf9965a7d241a)
+---
+ drivers/scsi/mpi3mr/mpi3mr_os.c | 7 +------
+ 1 file changed, 1 insertion(+), 6 deletions(-)
+
+diff --git a/drivers/scsi/mpi3mr/mpi3mr_os.c b/drivers/scsi/mpi3mr/mpi3mr_os.c
+index 190e6dd82812..aff8560edaf3 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr_os.c
++++ b/drivers/scsi/mpi3mr/mpi3mr_os.c
+@@ -3296,13 +3296,10 @@ static int mpi3mr_target_alloc(struct scsi_target *starget)
+ 		return -ENOMEM;
+ 
+ 	starget->hostdata = scsi_tgt_priv_data;
+-	scsi_tgt_priv_data->starget = starget;
+-	scsi_tgt_priv_data->dev_handle = MPI3MR_INVALID_DEV_HANDLE;
+ 
+ 	spin_lock_irqsave(&mrioc->tgtdev_lock, flags);
+ 	tgt_dev = __mpi3mr_get_tgtdev_by_perst_id(mrioc, starget->id);
+ 	if (tgt_dev && !tgt_dev->is_hidden) {
+-		starget->hostdata = scsi_tgt_priv_data;
+ 		scsi_tgt_priv_data->starget = starget;
+ 		scsi_tgt_priv_data->dev_handle = tgt_dev->dev_handle;
+ 		scsi_tgt_priv_data->perst_id = tgt_dev->perst_id;
+@@ -3311,10 +3308,8 @@ static int mpi3mr_target_alloc(struct scsi_target *starget)
+ 		tgt_dev->starget = starget;
+ 		atomic_set(&scsi_tgt_priv_data->block_io, 0);
+ 		retval = 0;
+-	} else {
+-		kfree(scsi_tgt_priv_data);
++	} else
+ 		retval = -ENXIO;
+-	}
+ 	spin_unlock_irqrestore(&mrioc->tgtdev_lock, flags);
+ 
+ 	return retval;
+-- 
+2.32.0
+

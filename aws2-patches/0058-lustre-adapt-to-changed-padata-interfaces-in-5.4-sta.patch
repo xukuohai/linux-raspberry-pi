@@ -1,0 +1,110 @@
+From 89e4158cac1f78d19721e72da28545f786ff7eb8 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 12 Feb 2020 21:16:27 +0000
+Subject: lustre: adapt to changed padata interfaces in 5.4 -stable
+
+The 5.4 -stable branch changed padata interfaces, as part of a
+pcrypt fix. Adapt for this change. As can be seen in the commit
+message for the below commit, a wrapper for padata instances
+was created, so that the pcrypt code could avoid race conditions.
+
+So, the lustre code simply needs to allocate such a wrapper and pass
+it to the changed padata_do_parallel interface too.
+
+Linux commit:
+
+bbefa1dd6a6d53537c11624752219e39959d04fb ("crypto: pcrypt - Avoid deadlock by using per-instance padata queues")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h            |  3 +++
+ .../libcfs/include/libcfs/libcfs_ptask.h      |  3 +++
+ .../lustrefsx/libcfs/libcfs/libcfs_ptask.c    | 19 +++++++++++++++++--
+ 3 files changed, 23 insertions(+), 2 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index d5cf2879b0d9..8925156518a4 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -904,6 +904,9 @@
+ /* changed padata interface in 5.4 */
+ #define HAVE_PADATA_INTERFACE_54
+ 
++/* changed padata interface in 5.6 (and the 5.4 -stable branch) */
++#define HAVE_PADATA_INTERFACE_56
++
+ /* ext4_journal_start takes 3 arguments */
+ /* #undef JOURNAL_START_HAS_3ARGS */
+ 
+diff --git a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
+index 586a04446cae..b7c791cdf1eb 100644
+--- a/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
++++ b/drivers/staging/lustrefsx/libcfs/include/libcfs/libcfs_ptask.h
+@@ -25,6 +25,9 @@ struct padata_instance {};
+ 
+ struct cfs_ptask_engine {
+ 	struct padata_instance	*pte_pinst;
++#ifdef HAVE_PADATA_INTERFACE_56
++	struct padata_shell	*pte_pshell;
++#endif
+ #ifndef HAVE_PADATA_INTERFACE_54
+ 	struct workqueue_struct	*pte_wq;
+ #endif
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c b/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
+index 1b7603cade8a..636a93f02e68 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/libcfs_ptask.c
+@@ -137,7 +137,9 @@ static int cfs_do_parallel(struct cfs_ptask_engine *engine,
+ 	ptask->pt_result = -EINPROGRESS;
+ 
+ retry:
+-#ifdef HAVE_PADATA_INTERFACE_54
++#ifdef HAVE_PADATA_INTERFACE_56
++	rc = padata_do_parallel(engine->pte_pshell, padata, &ptask->pt_cbcpu);
++#elif HAVE_PADATA_INTERFACE_54
+ 	rc = padata_do_parallel(engine->pte_pinst, padata, &ptask->pt_cbcpu);
+ #else
+ 	rc = padata_do_parallel(engine->pte_pinst, padata, ptask->pt_cbcpu);
+@@ -400,11 +402,17 @@ static int cfs_ptengine_padata_init(struct cfs_ptask_engine *engine,
+ 	if (engine->pte_pinst == NULL)
+ 		GOTO(err_free_par_mask, rc = -ENOMEM);
+ 
++#ifdef HAVE_PADATA_INTERFACE_56
++	engine->pte_pshell = padata_alloc_shell(engine->pte_pinst);
++	if (engine->pte_pshell == NULL)
++		GOTO(err_free_padata, rc = -ENOMEM);
++#endif
++
+ 	engine->pte_notifier.notifier_call = cfs_ptask_cpumask_change_notify;
+ 	rc = padata_register_cpumask_notifier(engine->pte_pinst,
+ 					      &engine->pte_notifier);
+ 	if (rc)
+-		GOTO(err_free_padata, rc);
++		GOTO(err_free_pashell, rc);
+ 
+ 	rc = cfs_ptengine_set_cpumask(engine, par_mask);
+ 	if (rc)
+@@ -423,6 +431,10 @@ static int cfs_ptengine_padata_init(struct cfs_ptask_engine *engine,
+ err_unregister:
+ 	padata_unregister_cpumask_notifier(engine->pte_pinst,
+ 					   &engine->pte_notifier);
++err_free_pashell:
++#ifdef HAVE_PADATA_INTERFACE_56
++	padata_free_shell(engine->pte_pshell);
++#endif
+ err_free_padata:
+ 	padata_free(engine->pte_pinst);
+ err_free_par_mask:
+@@ -443,6 +455,9 @@ static void cfs_ptengine_padata_fini(struct cfs_ptask_engine *engine)
+ 	padata_stop(engine->pte_pinst);
+ 	padata_unregister_cpumask_notifier(engine->pte_pinst,
+ 					   &engine->pte_notifier);
++#ifdef HAVE_PADATA_INTERFACE_56
++	padata_free_shell(engine->pte_pshell);
++#endif
+ 	padata_free(engine->pte_pinst);
+ #ifndef HAVE_PADATA_INTERFACE_54
+ 	destroy_workqueue(engine->pte_wq);
+-- 
+2.32.0
+

@@ -1,0 +1,49 @@
+From 969a63ddc357627e2dcb021b6eb6434885bd66b6 Mon Sep 17 00:00:00 2001
+From: Raphael Gault <raphael.gault@arm.com>
+Date: Fri, 16 Aug 2019 13:24:03 +0100
+Subject: objtool: arm64: Enable stack validation for arm64
+
+Add build option to run stack validation at compile time.
+
+When requiring stack validation, jump tables are disabled as it
+simplifies objtool analysis (without having to introduce unreliable
+artifacs). In local testing, this does not appear to significaly
+affect final binary size nor system performance.
+
+Signed-off-by: Raphael Gault <raphael.gault@arm.com>
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/Kconfig  | 1 +
+ arch/arm64/Makefile | 4 ++++
+ 2 files changed, 5 insertions(+)
+
+diff --git a/arch/arm64/Kconfig b/arch/arm64/Kconfig
+index 6a5ffa70490d..5e1385b448b3 100644
+--- a/arch/arm64/Kconfig
++++ b/arch/arm64/Kconfig
+@@ -182,6 +182,7 @@ config ARM64
+ 	select MMU_GATHER_RCU_TABLE_FREE
+ 	select HAVE_RSEQ
+ 	select HAVE_STACKPROTECTOR
++	select HAVE_STACK_VALIDATION
+ 	select HAVE_SYSCALL_TRACEPOINTS
+ 	select HAVE_KPROBES
+ 	select HAVE_KRETPROBES
+diff --git a/arch/arm64/Makefile b/arch/arm64/Makefile
+index 485b7dbd4f9e..d1c4a4ad15f4 100644
+--- a/arch/arm64/Makefile
++++ b/arch/arm64/Makefile
+@@ -131,6 +131,10 @@ ifeq ($(CONFIG_DYNAMIC_FTRACE_WITH_REGS),y)
+   CC_FLAGS_FTRACE := -fpatchable-function-entry=2
+ endif
+ 
++ifeq ($(CONFIG_STACK_VALIDATION),y)
++KBUILD_CFLAGS	+= -fno-jump-tables
++endif
++
+ # Default value
+ head-y		:= arch/arm64/kernel/head.o
+ 
+-- 
+2.32.0
+

@@ -1,0 +1,54 @@
+From f46398b98438b2e90d3b8ab7f43cb14354915415 Mon Sep 17 00:00:00 2001
+From: Baolin Wang <baolin.wang@linux.alibaba.com>
+Date: Tue, 22 Mar 2022 14:48:43 -0700
+Subject: mm/damon: remove redundant page validation
+
+It will never get a NULL page by pte_page() as discussed in thread [1],
+thus remove the redundant page validation to fix below Smatch static
+checker warning.
+
+    mm/damon/vaddr.c:405 damon_hugetlb_mkold()
+    warn: 'page' can't be NULL.
+
+[1] https://lore.kernel.org/linux-mm/20220106091200.GA14564@kili/
+
+Link: https://lkml.kernel.org/r/6d32f7d201b8970d53f51b6c5717d472aed2987c.1642386715.git.baolin.wang@linux.alibaba.com
+Signed-off-by: Baolin Wang <baolin.wang@linux.alibaba.com>
+Reported-by: Dan Carpenter <dan.carpenter@oracle.com>
+Reviewed-by: SeongJae Park <sj@kernel.org>
+Acked-by: David Rientjes <rientjes@google.com>
+Acked-by: Souptick Joarder <jrdr.linux@gmail.com>
+Reviewed-by: Miaohe Lin <linmiaohe@huawei.com>
+Signed-off-by: Andrew Morton <akpm@linux-foundation.org>
+Signed-off-by: Linus Torvalds <torvalds@linux-foundation.org>
+---
+ mm/damon/vaddr.c | 6 ------
+ 1 file changed, 6 deletions(-)
+
+diff --git a/mm/damon/vaddr.c b/mm/damon/vaddr.c
+index f98edb90a873..6d3454dd3204 100644
+--- a/mm/damon/vaddr.c
++++ b/mm/damon/vaddr.c
+@@ -402,9 +402,6 @@ static void damon_hugetlb_mkold(pte_t *pte, struct mm_struct *mm,
+ 	pte_t entry = huge_ptep_get(pte);
+ 	struct page *page = pte_page(entry);
+ 
+-	if (!page)
+-		return;
+-
+ 	get_page(page);
+ 
+ 	if (pte_young(entry)) {
+@@ -564,9 +561,6 @@ static int damon_young_hugetlb_entry(pte_t *pte, unsigned long hmask,
+ 		goto out;
+ 
+ 	page = pte_page(entry);
+-	if (!page)
+-		goto out;
+-
+ 	get_page(page);
+ 
+ 	if (pte_young(entry) || !page_is_idle(page) ||
+-- 
+2.32.0
+

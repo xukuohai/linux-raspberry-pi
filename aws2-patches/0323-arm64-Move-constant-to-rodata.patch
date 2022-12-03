@@ -1,0 +1,36 @@
+From 232c2c66ea5e451908b349937726fea3ef1e53bc Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 2 Dec 2019 13:04:58 +0000
+Subject: arm64: Move constant to rodata
+
+Constant arm64_relocate_new_kernel_size does not need to be in
+the same section as the new kernel code/data region.
+
+Move it to ".rodata" section.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/relocate_kernel.S | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/kernel/relocate_kernel.S b/arch/arm64/kernel/relocate_kernel.S
+index 84eec95ec06c..a4fbfd8d9255 100644
+--- a/arch/arm64/kernel/relocate_kernel.S
++++ b/arch/arm64/kernel/relocate_kernel.S
+@@ -106,10 +106,13 @@ SYM_CODE_END(arm64_relocate_new_kernel)
+ .Lcopy_end:
+ .org	KEXEC_CONTROL_PAGE_SIZE
+ 
++.pushsection ".rodata", "a"
+ /*
+  * arm64_relocate_new_kernel_size - Number of bytes to copy to the
+  * control_code_page.
+  */
+ .globl arm64_relocate_new_kernel_size
++.align 8
+ arm64_relocate_new_kernel_size:
+ 	.quad	.Lcopy_end - arm64_relocate_new_kernel
++.popsection
+-- 
+2.32.0
+

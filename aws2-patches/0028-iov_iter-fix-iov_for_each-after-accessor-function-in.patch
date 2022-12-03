@@ -1,0 +1,40 @@
+From ab0a4cb8c6ecd6e1ecc5bc17affb62ac6caf361c Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Wed, 6 Mar 2019 17:48:18 +0000
+Subject: iov_iter: fix iov_for_each after accessor function introduction
+
+The switch to iovec accessors broke the iov_for_each macro, because
+of a missing indirection when passing the iov_iter to the new accessor
+functions. This went unnoticed, as the macro is not currently used in
+the kernel itself.
+
+Pass a struct iov_iter pointer, as expected.
+
+Fixes: 00e23707442a ("iov_iter: Use accessor function")
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ include/linux/uio.h | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/include/linux/uio.h b/include/linux/uio.h
+index 27ff8eb786dc..4e5a2fd3fc0a 100644
+--- a/include/linux/uio.h
++++ b/include/linux/uio.h
+@@ -111,6 +111,14 @@ static inline struct iovec iov_iter_iovec(const struct iov_iter *iter)
+ 	};
+ }
+ 
++#define iov_for_each(iov, iter, start)				\
++	if (iov_iter_type(&(start)) == ITER_IOVEC ||		\
++	    iov_iter_type(&(start)) == ITER_KVEC)			\
++	for (iter = (start);					\
++	     (iter).count &&					\
++	     ((iov = iov_iter_iovec(&(iter))), 1);		\
++	     iov_iter_advance(&(iter), (iov).iov_len))
++
+ size_t iov_iter_copy_from_user_atomic(struct page *page,
+ 		struct iov_iter *i, unsigned long offset, size_t bytes);
+ void iov_iter_advance(struct iov_iter *i, size_t bytes);
+-- 
+2.32.0
+

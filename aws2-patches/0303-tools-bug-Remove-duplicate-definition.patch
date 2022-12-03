@@ -1,0 +1,35 @@
+From 50f85b6a28b0be37b9a737f3d5768c1f33182b9a Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 14 Sep 2020 16:36:11 +0100
+Subject: tools: bug: Remove duplicate definition
+
+Under tools, bug.h only defines BUILD_BUG_ON_ZERO() which is already
+defined in build_bug.h. This prevents a file to include both headers at
+the same time.
+
+Have bug.h include build_bug.h instead.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/include/linux/bug.h | 6 +-----
+ 1 file changed, 1 insertion(+), 5 deletions(-)
+
+diff --git a/tools/include/linux/bug.h b/tools/include/linux/bug.h
+index 85f80258a15f..548be7cffa8e 100644
+--- a/tools/include/linux/bug.h
++++ b/tools/include/linux/bug.h
+@@ -2,10 +2,6 @@
+ #ifndef _TOOLS_PERF_LINUX_BUG_H
+ #define _TOOLS_PERF_LINUX_BUG_H
+ 
+-/* Force a compilation error if condition is true, but also produce a
+-   result (of value 0 and type size_t), so the expression can be used
+-   e.g. in a structure initializer (or where-ever else comma expressions
+-   aren't permitted). */
+-#define BUILD_BUG_ON_ZERO(e) (sizeof(struct { int:-!!(e); }))
++#include <linux/build_bug.h>
+ 
+ #endif	/* _TOOLS_PERF_LINUX_BUG_H */
+-- 
+2.32.0
+

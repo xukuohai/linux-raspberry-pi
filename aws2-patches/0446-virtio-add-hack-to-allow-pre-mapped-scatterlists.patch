@@ -1,0 +1,35 @@
+From c237ead6a1751ea159cd77b5ae9bfb0b56105801 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Thu, 6 Jan 2022 19:16:23 +0000
+Subject: virtio: add hack to allow pre-mapped scatterlists
+
+When reporting offlined pages through free page reporting, and
+memmap_on_memory is active, we don't want to touch the page structures
+anymore, since that will lead to a reference to the range we just
+offlined, as the page structures themselves reside in the range.
+
+So, we can't use sg_phys to set the dma address. Instead, if sg_page
+is set to NULL, assume that sg_dma_address is set already, and use it.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/virtio/virtio_ring.c | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/virtio/virtio_ring.c b/drivers/virtio/virtio_ring.c
+index 3cc2a4ee7152..03635431af42 100644
+--- a/drivers/virtio/virtio_ring.c
++++ b/drivers/virtio/virtio_ring.c
+@@ -327,7 +327,8 @@ static dma_addr_t vring_map_one_sg(const struct vring_virtqueue *vq,
+ 				   enum dma_data_direction direction)
+ {
+ 	if (!vq->use_dma_api)
+-		return (dma_addr_t)sg_phys(sg);
++		return sg_page(sg) == NULL ? sg_dma_address(sg) :
++		    (dma_addr_t)sg_phys(sg);
+ 
+ 	/*
+ 	 * We can't use dma_map_sg, because we don't use scatterlists in
+-- 
+2.32.0
+

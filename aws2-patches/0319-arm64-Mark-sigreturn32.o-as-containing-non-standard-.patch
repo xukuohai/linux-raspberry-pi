@@ -1,0 +1,32 @@
+From e39712bbf374dcb57b5e5a7a70162d7d33f1bf80 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 2 Dec 2019 14:34:31 +0000
+Subject: arm64: Mark sigreturn32.o as containing non standard code
+
+sigreturn32.o contains aarch32 getting copied to the VDSO for
+compat user tasks.
+
+This code shouldn't get validated by arm64 objtool.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/kernel/Makefile | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/arch/arm64/kernel/Makefile b/arch/arm64/kernel/Makefile
+index 8f82dc5e1b9e..4a39d9525d78 100644
+--- a/arch/arm64/kernel/Makefile
++++ b/arch/arm64/kernel/Makefile
+@@ -28,6 +28,9 @@ $(obj)/%.stub.o: $(obj)/%.o FORCE
+ obj-$(CONFIG_COMPAT)			+= sys32.o signal32.o			\
+ 					   sys_compat.o
+ obj-$(CONFIG_COMPAT)			+= sigreturn32.o
++ifeq ($(CONFIG_COMPAT), y)
++OBJECT_FILES_NON_STANDARD_sigreturn32.o := y
++endif
+ obj-$(CONFIG_KUSER_HELPERS)		+= kuser32.o
+ 
+ OBJECT_FILES_NON_STANDARD_kuser32.o := y
+-- 
+2.32.0
+

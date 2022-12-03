@@ -1,0 +1,29 @@
+From 73113dadd7a5230c3692a436adde7df4e3e1c7b0 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Tue, 22 Dec 2020 17:26:17 +0000
+Subject: lustre: disable compiling sec_ctx.c
+
+The exported functions (push_ctxt, pop_ctxt) in this file are not
+used anywhere.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/ptlrpc/Makefile | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/ptlrpc/Makefile b/drivers/staging/lustrefsx/lustre/ptlrpc/Makefile
+index f19231359782..bf464b8d7b53 100644
+--- a/drivers/staging/lustrefsx/lustre/ptlrpc/Makefile
++++ b/drivers/staging/lustrefsx/lustre/ptlrpc/Makefile
+@@ -15,7 +15,7 @@ ptlrpc_objs := client.o recover.o connection.o niobuf.o pack_generic.o
+ ptlrpc_objs += events.o ptlrpc_module.o service.o pinger.o
+ ptlrpc_objs += llog_net.o llog_client.o llog_server.o import.o ptlrpcd.o
+ ptlrpc_objs += pers.o lproc_ptlrpc.o wiretest.o layout.o
+-ptlrpc_objs += sec.o sec_ctx.o sec_bulk.o sec_gc.o sec_config.o sec_lproc.o
++ptlrpc_objs += sec.o sec_bulk.o sec_gc.o sec_config.o sec_lproc.o
+ ptlrpc_objs += sec_null.o sec_plain.o nrs.o nrs_fifo.o nrs_crr.o nrs_orr.o
+ ptlrpc_objs += nrs_tbf.o nrs_delay.o errno.o
+ 
+-- 
+2.32.0
+

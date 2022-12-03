@@ -1,0 +1,73 @@
+From 324e8b8e46a86f39e59573c1a6673b0760a0c174 Mon Sep 17 00:00:00 2001
+From: Eric Dumazet <edumazet@google.com>
+Date: Thu, 25 Mar 2021 11:08:16 -0700
+Subject: inet: convert tcp_early_demux and udp_early_demux to u8
+
+For these sysctls, their dedicated helpers have
+to use proc_dou8vec_minmax().
+
+Signed-off-by: Eric Dumazet <edumazet@google.com>
+Signed-off-by: David S. Miller <davem@davemloft.net>
+(cherry picked from commit 2932bcda070d9a02548e57119b1ada8f018c40b5)
+---
+ include/net/netns/ipv4.h   | 4 ++--
+ net/ipv4/sysctl_net_ipv4.c | 8 ++++----
+ 2 files changed, 6 insertions(+), 6 deletions(-)
+
+diff --git a/include/net/netns/ipv4.h b/include/net/netns/ipv4.h
+index 0fd10a7e55bf..c6ce5e825475 100644
+--- a/include/net/netns/ipv4.h
++++ b/include/net/netns/ipv4.h
+@@ -108,8 +108,8 @@ struct netns_ipv4 {
+ #ifdef CONFIG_NET_L3_MASTER_DEV
+ 	u8 sysctl_raw_l3mdev_accept;
+ #endif
+-	int sysctl_tcp_early_demux;
+-	int sysctl_udp_early_demux;
++	u8 sysctl_tcp_early_demux;
++	u8 sysctl_udp_early_demux;
+ 
+ 	u8 sysctl_nexthop_compat_mode;
+ 
+diff --git a/net/ipv4/sysctl_net_ipv4.c b/net/ipv4/sysctl_net_ipv4.c
+index 95f32676842d..54e6987af9a8 100644
+--- a/net/ipv4/sysctl_net_ipv4.c
++++ b/net/ipv4/sysctl_net_ipv4.c
+@@ -389,7 +389,7 @@ static int proc_tcp_early_demux(struct ctl_table *table, int write,
+ {
+ 	int ret = 0;
+ 
+-	ret = proc_dointvec(table, write, buffer, lenp, ppos);
++	ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
+ 
+ 	if (write && !ret) {
+ 		int enabled = init_net.ipv4.sysctl_tcp_early_demux;
+@@ -405,7 +405,7 @@ static int proc_udp_early_demux(struct ctl_table *table, int write,
+ {
+ 	int ret = 0;
+ 
+-	ret = proc_dointvec(table, write, buffer, lenp, ppos);
++	ret = proc_dou8vec_minmax(table, write, buffer, lenp, ppos);
+ 
+ 	if (write && !ret) {
+ 		int enabled = init_net.ipv4.sysctl_udp_early_demux;
+@@ -683,14 +683,14 @@ static struct ctl_table ipv4_net_table[] = {
+ 	{
+ 		.procname       = "udp_early_demux",
+ 		.data           = &init_net.ipv4.sysctl_udp_early_demux,
+-		.maxlen         = sizeof(int),
++		.maxlen         = sizeof(u8),
+ 		.mode           = 0644,
+ 		.proc_handler   = proc_udp_early_demux
+ 	},
+ 	{
+ 		.procname       = "tcp_early_demux",
+ 		.data           = &init_net.ipv4.sysctl_tcp_early_demux,
+-		.maxlen         = sizeof(int),
++		.maxlen         = sizeof(u8),
+ 		.mode           = 0644,
+ 		.proc_handler   = proc_tcp_early_demux
+ 	},
+-- 
+2.32.0
+

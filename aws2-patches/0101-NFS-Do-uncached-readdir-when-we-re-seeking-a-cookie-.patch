@@ -1,0 +1,62 @@
+From b6103fd772250bccf97df38b8614a47e22830d7c Mon Sep 17 00:00:00 2001
+From: Trond Myklebust <trond.myklebust@hammerspace.com>
+Date: Fri, 6 Nov 2020 20:47:05 -0500
+Subject: NFS: Do uncached readdir when we're seeking a cookie in an empty page
+ cache
+
+If the directory is changing, causing the page cache to get invalidated
+while we are listing the contents, then the NFS client is currently forced
+to read in the entire directory contents from scratch, because it needs
+to perform a linear search for the readdir cookie. While this is not
+an issue for small directories, it does not scale to directories with
+millions of entries.
+In order to be able to deal with large directories that are changing,
+add a heuristic to ensure that if the page cache is empty, and we are
+searching for a cookie that is not the zero cookie, we just default to
+performing uncached readdir.
+
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+Reviewed-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Dave Wysochanski <dwysocha@redhat.com>
+(cherry picked from commit 794092c57f89c2c833da00f82f38a0afcb4033bc)
+---
+ fs/nfs/dir.c | 17 +++++++++++++++++
+ 1 file changed, 17 insertions(+)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index 89d1f82aa130..800ea6a74fff 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -937,11 +937,28 @@ static int find_and_lock_cache_page(struct nfs_readdir_descriptor *desc)
+ 	return res;
+ }
+ 
++static bool nfs_readdir_dont_search_cache(struct nfs_readdir_descriptor *desc)
++{
++	struct address_space *mapping = desc->file->f_mapping;
++	struct inode *dir = file_inode(desc->file);
++	unsigned int dtsize = NFS_SERVER(dir)->dtsize;
++	loff_t size = i_size_read(dir);
++
++	/*
++	 * Default to uncached readdir if the page cache is empty, and
++	 * we're looking for a non-zero cookie in a large directory.
++	 */
++	return desc->dir_cookie != 0 && mapping->nrpages == 0 && size > dtsize;
++}
++
+ /* Search for desc->dir_cookie from the beginning of the page cache */
+ static int readdir_search_pagecache(struct nfs_readdir_descriptor *desc)
+ {
+ 	int res;
+ 
++	if (nfs_readdir_dont_search_cache(desc))
++		return -EBADCOOKIE;
++
+ 	do {
+ 		if (desc->page_index == 0) {
+ 			desc->current_index = 0;
+-- 
+2.32.0
+

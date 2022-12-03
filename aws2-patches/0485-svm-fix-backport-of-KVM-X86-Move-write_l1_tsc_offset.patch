@@ -1,0 +1,37 @@
+From 283a6c4a1a5d1047cd3fd31990518649b9bf1283 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 18 Apr 2022 16:49:13 +0000
+Subject: svm: fix backport of "KVM: X86: Move write_l1_tsc_offset() logic to
+ common code and rename it"
+
+The backport of edcfe5405811 ("KVM: X86: Move write_l1_tsc_offset() logic
+to common code and rename it") had a problem that caused crashes for
+AMD/SVM, because of an unconditional reference to the nested part of
+the svm structure.
+
+Fix this by making it conditional on is_guest_mode
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ arch/x86/kvm/svm/svm.c | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/arch/x86/kvm/svm/svm.c b/arch/x86/kvm/svm/svm.c
+index 4aea303a28d0..215222a5411a 100644
+--- a/arch/x86/kvm/svm/svm.c
++++ b/arch/x86/kvm/svm/svm.c
+@@ -1083,7 +1083,10 @@ static void svm_write_tsc_offset(struct kvm_vcpu *vcpu, u64 offset)
+ {
+ 	struct vcpu_svm *svm = to_svm(vcpu);
+ 
+-	svm->nested.hsave->control.tsc_offset = vcpu->arch.l1_tsc_offset;
++	if (is_guest_mode(&svm->vcpu)) {
++		svm->nested.hsave->control.tsc_offset =
++		    vcpu->arch.l1_tsc_offset;
++	}
+ 	svm->vmcb->control.tsc_offset = offset;
+ 	vmcb_mark_dirty(svm->vmcb, VMCB_INTERCEPTS);
+ }
+-- 
+2.32.0
+

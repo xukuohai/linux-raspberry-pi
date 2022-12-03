@@ -1,0 +1,85 @@
+From fc178b1dd687bcaf4e38b486e7386a0ebc2242bd Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 21 Jan 2021 15:29:36 -0600
+Subject: x86/power: Support objtool validation in hibernate_asm_64.S
+
+The OBJECT_FILES_NON_STANDARD annotation is used to tell objtool to
+ignore a file.  File-level ignores won't work when validating vmlinux.o.
+
+Instead, convert restore_image() and core_restore_code() to be ELF
+functions.  Their code is conventional enough for objtool to be able to
+understand them.
+
+Cc: "Rafael J. Wysocki" <rjw@rjwysocki.net>
+Cc: Pavel Machek <pavel@ucw.cz>
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Link: https://lore.kernel.org/r/974f8ceb5385e470f72e93974c70ab5c894bb0dc.1611263462.git.jpoimboe@redhat.com
+(cherry picked from commit 9077c016a39c78054f03e0354ad8409b47af68dc)
+---
+ arch/x86/power/Makefile           |  1 -
+ arch/x86/power/hibernate_asm_64.S | 35 +++++++++++++++++++++++++++++--
+ 2 files changed, 33 insertions(+), 3 deletions(-)
+
+diff --git a/arch/x86/power/Makefile b/arch/x86/power/Makefile
+index 6907b523e856..3ff80156f21a 100644
+--- a/arch/x86/power/Makefile
++++ b/arch/x86/power/Makefile
+@@ -1,5 +1,4 @@
+ # SPDX-License-Identifier: GPL-2.0
+-OBJECT_FILES_NON_STANDARD_hibernate_asm_$(BITS).o := y
+ 
+ # __restore_processor_state() restores %gs after S3 resume and so should not
+ # itself be stack-protected
+diff --git a/arch/x86/power/hibernate_asm_64.S b/arch/x86/power/hibernate_asm_64.S
+index c388eba2940d..186d884e2983 100644
+--- a/arch/x86/power/hibernate_asm_64.S
++++ b/arch/x86/power/hibernate_asm_64.S
+@@ -98,7 +98,7 @@ SYM_FUNC_START(swsusp_arch_suspend)
+ 	RET
+ SYM_FUNC_END(swsusp_arch_suspend)
+ 
+-SYM_CODE_START(restore_image)
++SYM_FUNC_START(restore_image)
+ 	/* prepare to jump to the image kernel */
+ 	movq	restore_jump_address(%rip), %r8
+ 	movq	restore_cr3(%rip), %r9
+@@ -113,4 +113,35 @@ SYM_CODE_START(restore_image)
+ 	/* jump to relocated restore code */
+ 	movq	relocated_restore_code(%rip), %rcx
+ 	jmpq	*%rcx
+-SYM_CODE_END(restore_image)
++SYM_FUNC_END(restore_image)
++
++	/* code below has been relocated to a safe page */
++SYM_FUNC_START(core_restore_code)
++	/* switch to temporary page tables */
++	movq	%rax, %cr3
++	/* flush TLB */
++	movq	%rbx, %rcx
++	andq	$~(X86_CR4_PGE), %rcx
++	movq	%rcx, %cr4;  # turn off PGE
++	movq	%cr3, %rcx;  # flush TLB
++	movq	%rcx, %cr3;
++	movq	%rbx, %cr4;  # turn PGE back on
++.Lloop:
++	testq	%rdx, %rdx
++	jz	.Ldone
++
++	/* get addresses from the pbe and copy the page */
++	movq	pbe_address(%rdx), %rsi
++	movq	pbe_orig_address(%rdx), %rdi
++	movq	$(PAGE_SIZE >> 3), %rcx
++	rep
++	movsq
++
++	/* progress to the next pbe */
++	movq	pbe_next(%rdx), %rdx
++	jmp	.Lloop
++
++.Ldone:
++	/* jump to the restore_registers address from the image header */
++	jmpq	*%r8
++SYM_FUNC_END(core_restore_code)
+-- 
+2.32.0
+

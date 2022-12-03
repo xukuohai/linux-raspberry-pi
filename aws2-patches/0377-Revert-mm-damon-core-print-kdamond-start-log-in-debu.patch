@@ -1,0 +1,26 @@
+From 87d0ca916796dda9299289724f041cb03203e62d Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:20 +0000
+Subject: Revert "mm/damon/core: print kdamond start log in debug mode only"
+
+This reverts commit 387473b89fea3f5be44124b5db0be03668ec45ab.
+---
+ mm/damon/core.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 7301e543f892..59033488402e 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -648,7 +648,7 @@ static int kdamond_fn(void *data)
+ 	unsigned long sz_limit = 0;
+ 
+ 	mutex_lock(&ctx->kdamond_lock);
+-	pr_debug("kdamond (%d) starts\n", ctx->kdamond->pid);
++	pr_info("kdamond (%d) starts\n", ctx->kdamond->pid);
+ 	mutex_unlock(&ctx->kdamond_lock);
+ 
+ 	if (ctx->primitive.init)
+-- 
+2.32.0
+

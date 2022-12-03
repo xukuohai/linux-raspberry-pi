@@ -1,0 +1,99 @@
+From 0d4679c3056a622115d67b4459740dd134b463a7 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:01:54 +0000
+Subject: Revert "damon/core/schemes: Skip already charged targets and regions"
+
+This reverts commit 8effcb9320aee03e00eb719d67d2a98a901c4455.
+---
+ include/linux/damon.h |  5 -----
+ mm/damon/core.c       | 37 -------------------------------------
+ 2 files changed, 42 deletions(-)
+
+diff --git a/include/linux/damon.h b/include/linux/damon.h
+index 5a9ee596fda3..0b4aedb69d5b 100644
+--- a/include/linux/damon.h
++++ b/include/linux/damon.h
+@@ -107,8 +107,6 @@ struct damos_quota {
+ /* private: For charging the quota */
+ 	unsigned long charged_sz;
+ 	unsigned long charged_from;
+-	struct damon_target *charge_target_from;
+-	unsigned long charge_addr_from;
+ };
+ 
+ /**
+@@ -337,9 +335,6 @@ struct damon_ctx {
+ #define damon_prev_region(r) \
+ 	(container_of(r->list.prev, struct damon_region, list))
+ 
+-#define damon_last_region(t) \
+-	(list_last_entry(&t->regions_list, struct damon_region, list))
+-
+ #define damon_for_each_region(r, t) \
+ 	list_for_each_entry(r, &t->regions_list, list)
+ 
+diff --git a/mm/damon/core.c b/mm/damon/core.c
+index 323fc4081483..8b531b2ce110 100644
+--- a/mm/damon/core.c
++++ b/mm/damon/core.c
+@@ -106,8 +106,6 @@ struct damos *damon_new_scheme(
+ 	scheme->quota.reset_interval = quota->reset_interval;
+ 	scheme->quota.charged_sz = 0;
+ 	scheme->quota.charged_from = 0;
+-	scheme->quota.charge_target_from = NULL;
+-	scheme->quota.charge_addr_from = 0;
+ 
+ 	return scheme;
+ }
+@@ -555,37 +553,6 @@ static void damon_do_apply_schemes(struct damon_ctx *c,
+ 		if (quota->sz && quota->charged_sz >= quota->sz)
+ 			continue;
+ 
+-		/* Skip previously charged regions */
+-		if (quota->charge_target_from) {
+-			if (t != quota->charge_target_from)
+-				continue;
+-			if (r == damon_last_region(t)) {
+-				quota->charge_target_from = NULL;
+-				quota->charge_addr_from = 0;
+-				continue;
+-			}
+-			if (quota->charge_addr_from &&
+-					r->ar.end <= quota->charge_addr_from)
+-				continue;
+-
+-			if (quota->charge_addr_from && r->ar.start <
+-					quota->charge_addr_from) {
+-				sz = ALIGN_DOWN(quota->charge_addr_from -
+-						r->ar.start, DAMON_MIN_REGION);
+-				if (!sz) {
+-					if (r->ar.end - r->ar.start <=
+-							DAMON_MIN_REGION)
+-						continue;
+-					sz = DAMON_MIN_REGION;
+-				}
+-				damon_split_region_at(c, t, r, sz);
+-				r = damon_next_region(r);
+-				sz = r->ar.end - r->ar.start;
+-			}
+-			quota->charge_target_from = NULL;
+-			quota->charge_addr_from = 0;
+-		}
+-
+ 		/* Check the target regions condition */
+ 		if (sz < s->min_sz_region || s->max_sz_region < sz)
+ 			continue;
+@@ -606,10 +573,6 @@ static void damon_do_apply_schemes(struct damon_ctx *c,
+ 			}
+ 			c->primitive.apply_scheme(c, t, r, s);
+ 			quota->charged_sz += sz;
+-			if (quota->sz && quota->charged_sz >= quota->sz) {
+-				quota->charge_target_from = t;
+-				quota->charge_addr_from = r->ar.end + 1;
+-			}
+ 		}
+ 		if (s->action != DAMOS_STAT)
+ 			r->age = 0;
+-- 
+2.32.0
+

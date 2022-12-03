@@ -1,0 +1,304 @@
+From ca34eb33fb6c1a936f65edfb365b5cc92ff01acb Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Wed, 9 Dec 2020 17:41:34 +0000
+Subject: mm/damon/vaddr: Separate commonly usable functions
+
+This commit moves functions in the default virtual address spaces
+monitoring primitives that commonly usable from other address spaces
+like physical address space into a header file.  Those will be reused by
+the physical address space monitoring primitives in the following
+commit.
+
+Signed-off-by: SeongJae Park <sjpark@amazon.de>
+---
+ mm/damon/Makefile       |   2 +-
+ mm/damon/prmtv-common.c | 104 +++++++++++++++++++++++++++++++++++++++
+ mm/damon/prmtv-common.h |  21 ++++++++
+ mm/damon/vaddr.c        | 106 +---------------------------------------
+ 4 files changed, 127 insertions(+), 106 deletions(-)
+ create mode 100644 mm/damon/prmtv-common.c
+ create mode 100644 mm/damon/prmtv-common.h
+
+diff --git a/mm/damon/Makefile b/mm/damon/Makefile
+index fed4be3bace3..99b1bfe01ff5 100644
+--- a/mm/damon/Makefile
++++ b/mm/damon/Makefile
+@@ -1,5 +1,5 @@
+ # SPDX-License-Identifier: GPL-2.0
+ 
+ obj-$(CONFIG_DAMON)		:= core.o
+-obj-$(CONFIG_DAMON_VADDR)	+= vaddr.o
++obj-$(CONFIG_DAMON_VADDR)	+= prmtv-common.o vaddr.o
+ obj-$(CONFIG_DAMON_DBGFS)	+= dbgfs.o
+diff --git a/mm/damon/prmtv-common.c b/mm/damon/prmtv-common.c
+new file mode 100644
+index 000000000000..11450ee5462f
+--- /dev/null
++++ b/mm/damon/prmtv-common.c
+@@ -0,0 +1,104 @@
++// SPDX-License-Identifier: GPL-2.0
++/*
++ * Common Primitives for Data Access Monitoring
++ *
++ * Author: SeongJae Park <sjpark@amazon.de>
++ */
++
++#include "prmtv-common.h"
++
++static void damon_ptep_mkold(pte_t *pte, struct mm_struct *mm,
++			     unsigned long addr)
++{
++	bool referenced = false;
++	struct page *page = pte_page(*pte);
++
++	if (pte_young(*pte)) {
++		referenced = true;
++		*pte = pte_mkold(*pte);
++	}
++
++#ifdef CONFIG_MMU_NOTIFIER
++	if (mmu_notifier_clear_young(mm, addr, addr + PAGE_SIZE))
++		referenced = true;
++#endif /* CONFIG_MMU_NOTIFIER */
++
++	if (referenced)
++		set_page_young(page);
++
++	set_page_idle(page);
++}
++
++static void damon_pmdp_mkold(pmd_t *pmd, struct mm_struct *mm,
++			     unsigned long addr)
++{
++#ifdef CONFIG_TRANSPARENT_HUGEPAGE
++	bool referenced = false;
++	struct page *page = pmd_page(*pmd);
++
++	if (pmd_young(*pmd)) {
++		referenced = true;
++		*pmd = pmd_mkold(*pmd);
++	}
++
++#ifdef CONFIG_MMU_NOTIFIER
++	if (mmu_notifier_clear_young(mm, addr,
++				addr + ((1UL) << HPAGE_PMD_SHIFT)))
++		referenced = true;
++#endif /* CONFIG_MMU_NOTIFIER */
++
++	if (referenced)
++		set_page_young(page);
++
++	set_page_idle(page);
++#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
++}
++
++void damon_va_mkold(struct mm_struct *mm, unsigned long addr)
++{
++	pte_t *pte = NULL;
++	pmd_t *pmd = NULL;
++	spinlock_t *ptl;
++
++	if (follow_invalidate_pte(mm, addr, NULL, &pte, &pmd, &ptl))
++		return;
++
++	if (pte) {
++		damon_ptep_mkold(pte, mm, addr);
++		pte_unmap_unlock(pte, ptl);
++	} else {
++		damon_pmdp_mkold(pmd, mm, addr);
++		spin_unlock(ptl);
++	}
++}
++
++bool damon_va_young(struct mm_struct *mm, unsigned long addr,
++			unsigned long *page_sz)
++{
++	pte_t *pte = NULL;
++	pmd_t *pmd = NULL;
++	spinlock_t *ptl;
++	bool young = false;
++
++	if (follow_invalidate_pte(mm, addr, NULL, &pte, &pmd, &ptl))
++		return false;
++
++	*page_sz = PAGE_SIZE;
++	if (pte) {
++		if (pte_young(*pte) || !page_is_idle(pte_page(*pte)) ||
++				mmu_notifier_test_young(mm, addr))
++			young = true;
++		pte_unmap_unlock(pte, ptl);
++		return young;
++	}
++
++#ifdef CONFIG_TRANSPARENT_HUGEPAGE
++	if (pmd_young(*pmd) || !page_is_idle(pmd_page(*pmd)) ||
++			mmu_notifier_test_young(mm, addr))
++		young = true;
++	spin_unlock(ptl);
++	*page_sz = ((1UL) << HPAGE_PMD_SHIFT);
++#endif	/* CONFIG_TRANSPARENT_HUGEPAGE */
++
++	return young;
++}
+diff --git a/mm/damon/prmtv-common.h b/mm/damon/prmtv-common.h
+new file mode 100644
+index 000000000000..a66a6139b4fc
+--- /dev/null
++++ b/mm/damon/prmtv-common.h
+@@ -0,0 +1,21 @@
++/* SPDX-License-Identifier: GPL-2.0 */
++/*
++ * Common Primitives for Data Access Monitoring
++ *
++ * Author: SeongJae Park <sjpark@amazon.de>
++ */
++
++#include <linux/damon.h>
++#include <linux/mm.h>
++#include <linux/mmu_notifier.h>
++#include <linux/page_idle.h>
++#include <linux/random.h>
++#include <linux/sched/mm.h>
++#include <linux/slab.h>
++
++/* Get a random number in [l, r) */
++#define damon_rand(l, r) (l + prandom_u32_max(r - l))
++
++void damon_va_mkold(struct mm_struct *mm, unsigned long addr);
++bool damon_va_young(struct mm_struct *mm, unsigned long addr,
++			unsigned long *page_sz);
+diff --git a/mm/damon/vaddr.c b/mm/damon/vaddr.c
+index 839769ba2f5d..69868765a75d 100644
+--- a/mm/damon/vaddr.c
++++ b/mm/damon/vaddr.c
+@@ -8,16 +8,8 @@
+ #define pr_fmt(fmt) "damon-va: " fmt
+ 
+ #include <asm-generic/mman-common.h>
+-#include <linux/damon.h>
+-#include <linux/mm.h>
+-#include <linux/mmu_notifier.h>
+-#include <linux/page_idle.h>
+-#include <linux/random.h>
+-#include <linux/sched/mm.h>
+-#include <linux/slab.h>
+ 
+-/* Get a random number in [l, r) */
+-#define damon_rand(l, r) (l + prandom_u32_max(r - l))
++#include "prmtv-common.h"
+ 
+ /*
+  * 't->id' should be the pointer to the relevant 'struct pid' having reference
+@@ -365,71 +357,6 @@ void damon_va_update(struct damon_ctx *ctx)
+ 	}
+ }
+ 
+-static void damon_ptep_mkold(pte_t *pte, struct mm_struct *mm,
+-			     unsigned long addr)
+-{
+-	bool referenced = false;
+-	struct page *page = pte_page(*pte);
+-
+-	if (pte_young(*pte)) {
+-		referenced = true;
+-		*pte = pte_mkold(*pte);
+-	}
+-
+-#ifdef CONFIG_MMU_NOTIFIER
+-	if (mmu_notifier_clear_young(mm, addr, addr + PAGE_SIZE))
+-		referenced = true;
+-#endif /* CONFIG_MMU_NOTIFIER */
+-
+-	if (referenced)
+-		set_page_young(page);
+-
+-	set_page_idle(page);
+-}
+-
+-static void damon_pmdp_mkold(pmd_t *pmd, struct mm_struct *mm,
+-			     unsigned long addr)
+-{
+-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+-	bool referenced = false;
+-	struct page *page = pmd_page(*pmd);
+-
+-	if (pmd_young(*pmd)) {
+-		referenced = true;
+-		*pmd = pmd_mkold(*pmd);
+-	}
+-
+-#ifdef CONFIG_MMU_NOTIFIER
+-	if (mmu_notifier_clear_young(mm, addr,
+-				addr + ((1UL) << HPAGE_PMD_SHIFT)))
+-		referenced = true;
+-#endif /* CONFIG_MMU_NOTIFIER */
+-
+-	if (referenced)
+-		set_page_young(page);
+-
+-	set_page_idle(page);
+-#endif /* CONFIG_TRANSPARENT_HUGEPAGE */
+-}
+-
+-static void damon_va_mkold(struct mm_struct *mm, unsigned long addr)
+-{
+-	pte_t *pte = NULL;
+-	pmd_t *pmd = NULL;
+-	spinlock_t *ptl;
+-
+-	if (follow_invalidate_pte(mm, addr, NULL, &pte, &pmd, &ptl))
+-		return;
+-
+-	if (pte) {
+-		damon_ptep_mkold(pte, mm, addr);
+-		pte_unmap_unlock(pte, ptl);
+-	} else {
+-		damon_pmdp_mkold(pmd, mm, addr);
+-		spin_unlock(ptl);
+-	}
+-}
+-
+ /*
+  * Functions for the access checking of the regions
+  */
+@@ -458,37 +385,6 @@ void damon_va_prepare_access_checks(struct damon_ctx *ctx)
+ 	}
+ }
+ 
+-static bool damon_va_young(struct mm_struct *mm, unsigned long addr,
+-			unsigned long *page_sz)
+-{
+-	pte_t *pte = NULL;
+-	pmd_t *pmd = NULL;
+-	spinlock_t *ptl;
+-	bool young = false;
+-
+-	if (follow_invalidate_pte(mm, addr, NULL, &pte, &pmd, &ptl))
+-		return false;
+-
+-	*page_sz = PAGE_SIZE;
+-	if (pte) {
+-		if (pte_young(*pte) || !page_is_idle(pte_page(*pte)) ||
+-				mmu_notifier_test_young(mm, addr))
+-			young = true;
+-		pte_unmap_unlock(pte, ptl);
+-		return young;
+-	}
+-
+-#ifdef CONFIG_TRANSPARENT_HUGEPAGE
+-	if (pmd_young(*pmd) || !page_is_idle(pmd_page(*pmd)) ||
+-			mmu_notifier_test_young(mm, addr))
+-		young = true;
+-	spin_unlock(ptl);
+-	*page_sz = ((1UL) << HPAGE_PMD_SHIFT);
+-#endif	/* CONFIG_TRANSPARENT_HUGEPAGE */
+-
+-	return young;
+-}
+-
+ /*
+  * Check whether the region was accessed after the last preparation
+  *
+-- 
+2.32.0
+

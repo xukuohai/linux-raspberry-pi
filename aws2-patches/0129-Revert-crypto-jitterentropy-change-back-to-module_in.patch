@@ -1,0 +1,30 @@
+From 7597ec6e347c298c1e5a611b59723c9341354d0a Mon Sep 17 00:00:00 2001
+From: Hailey Mothershead <hailmo@amazon.com>
+Date: Tue, 8 Jun 2021 21:31:07 +0000
+Subject: Revert: crypto: jitterentropy - change back to module_init()
+
+The original patch assumes that self tests are not run jitterentropy.
+That is not true on this kernel. When self tests are called on jitterentropy
+the kernel panics because the module is not yet loaded. Reverting this patch
+causes jitternetropy to loaded with subsys_initcall(). This, in turn, causes
+the module to be loaded in time for the self tests.
+---
+ crypto/jitterentropy-kcapi.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/crypto/jitterentropy-kcapi.c b/crypto/jitterentropy-kcapi.c
+index e8a4165a1874..b1d7b5a6e61c 100644
+--- a/crypto/jitterentropy-kcapi.c
++++ b/crypto/jitterentropy-kcapi.c
+@@ -214,7 +214,7 @@ static void __exit jent_mod_exit(void)
+ 	crypto_unregister_rng(&jent_alg);
+ }
+ 
+-module_init(jent_mod_init);
++subsys_initcall(jent_mod_init);
+ module_exit(jent_mod_exit);
+ 
+ MODULE_LICENSE("Dual BSD/GPL");
+-- 
+2.32.0
+

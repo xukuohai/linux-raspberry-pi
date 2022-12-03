@@ -1,0 +1,34 @@
+From dfffd812205c5ce069df7b205087711359df09c9 Mon Sep 17 00:00:00 2001
+From: Dan Carpenter <dan.carpenter@oracle.com>
+Date: Wed, 9 Jun 2021 12:26:02 +0300
+Subject: scsi: mpi3mr: Delete unnecessary NULL check
+
+The "mrioc->intr_info" pointer can't be NULL, but if it could then the
+second iteration through the loop would Oops.  Let's delete the confusing
+and impossible NULL check.
+
+Link: https://lore.kernel.org/r/YMCJKgykDYtyvY44@mwanda
+Signed-off-by: Dan Carpenter <dan.carpenter@oracle.com>
+Signed-off-by: Martin K. Petersen <martin.petersen@oracle.com>
+(cherry picked from commit d46bdecd9f3cdf6c5e1beb5975b5dbf098c1a9f7)
+---
+ drivers/scsi/mpi3mr/mpi3mr_fw.c | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/drivers/scsi/mpi3mr/mpi3mr_fw.c b/drivers/scsi/mpi3mr/mpi3mr_fw.c
+index acb2be62080a..40696b75345d 100644
+--- a/drivers/scsi/mpi3mr/mpi3mr_fw.c
++++ b/drivers/scsi/mpi3mr/mpi3mr_fw.c
+@@ -3583,8 +3583,7 @@ static void mpi3mr_free_mem(struct mpi3mr_ioc *mrioc)
+ 
+ 	for (i = 0; i < mrioc->intr_info_count; i++) {
+ 		intr_info = mrioc->intr_info + i;
+-		if (intr_info)
+-			intr_info->op_reply_q = NULL;
++		intr_info->op_reply_q = NULL;
+ 	}
+ 
+ 	kfree(mrioc->req_qinfo);
+-- 
+2.32.0
+

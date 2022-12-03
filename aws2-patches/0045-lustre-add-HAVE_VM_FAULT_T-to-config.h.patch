@@ -1,0 +1,29 @@
+From 2842a40ad2ec108e118fdc06ab75cdc332dbb458 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Sun, 24 Mar 2019 22:47:54 +0000
+Subject: lustre: add HAVE_VM_FAULT_T to config.h
+
+Add HAVE_VM_FAULT_T to config.h for 5.1 and later kernels
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index 657f3cca73c9..5e042baf49d7 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -892,6 +892,9 @@
+ /* totalram_pages was turned in to a function */
+ #define HAVE_TOTALRAM_PAGES_FUNC 1
+ 
++/* vm_fault_t exists */
++#define HAVE_VM_FAULT_T 1
++
+ /* ext4_journal_start takes 3 arguments */
+ /* #undef JOURNAL_START_HAS_3ARGS */
+ 
+-- 
+2.32.0
+

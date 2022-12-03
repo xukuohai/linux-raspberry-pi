@@ -1,0 +1,87 @@
+From e4edae77b2d37bd21881d551de1aa3912e0e6709 Mon Sep 17 00:00:00 2001
+From: SeongJae Park <sjpark@amazon.de>
+Date: Tue, 23 Nov 2021 14:02:03 +0000
+Subject: Revert "damon/dbgfs: Support physical memory monitoring"
+
+This reverts commit 9166341261fc56fe5c2dcb3d21db983b3e5967b8.
+---
+ mm/damon/Kconfig |  2 +-
+ mm/damon/dbgfs.c | 21 +++------------------
+ 2 files changed, 4 insertions(+), 19 deletions(-)
+
+diff --git a/mm/damon/Kconfig b/mm/damon/Kconfig
+index da44c307dd30..1f1c7248b12e 100644
+--- a/mm/damon/Kconfig
++++ b/mm/damon/Kconfig
+@@ -31,7 +31,7 @@ config DAMON_PADDR
+ 
+ config DAMON_DBGFS
+ 	bool "DAMON debugfs interface"
+-	depends on DAMON_VADDR && DAMON_PADDR && DEBUG_FS
++	depends on DAMON_VADDR && DEBUG_FS
+ 	help
+ 	  This builds the debugfs interface for DAMON.  The user space admins
+ 	  can use the interface for arbitrary data access monitoring.
+diff --git a/mm/damon/dbgfs.c b/mm/damon/dbgfs.c
+index e5d24c5185c4..48213d144a7f 100644
+--- a/mm/damon/dbgfs.c
++++ b/mm/damon/dbgfs.c
+@@ -460,7 +460,6 @@ static ssize_t dbgfs_target_ids_write(struct file *file,
+ 		const char __user *buf, size_t count, loff_t *ppos)
+ {
+ 	struct damon_ctx *ctx = file->private_data;
+-	bool id_is_pid = true;
+ 	char *kbuf, *nrs;
+ 	unsigned long *targets;
+ 	ssize_t nr_targets;
+@@ -473,11 +472,6 @@ static ssize_t dbgfs_target_ids_write(struct file *file,
+ 		return PTR_ERR(kbuf);
+ 
+ 	nrs = kbuf;
+-	if (!strncmp(kbuf, "paddr\n", count)) {
+-		id_is_pid = false;
+-		/* target id is meaningless here, but we set it just for fun */
+-		scnprintf(kbuf, count, "42    ");
+-	}
+ 
+ 	targets = str_to_target_ids(nrs, ret, &nr_targets);
+ 	if (!targets) {
+@@ -485,7 +479,7 @@ static ssize_t dbgfs_target_ids_write(struct file *file,
+ 		goto out;
+ 	}
+ 
+-	if (id_is_pid) {
++	if (targetid_is_pid(ctx)) {
+ 		for (i = 0; i < nr_targets; i++) {
+ 			targets[i] = (unsigned long)find_get_pid(
+ 					(int)targets[i]);
+@@ -499,24 +493,15 @@ static ssize_t dbgfs_target_ids_write(struct file *file,
+ 
+ 	mutex_lock(&ctx->kdamond_lock);
+ 	if (ctx->kdamond) {
+-		if (id_is_pid)
++		if (targetid_is_pid(ctx))
+ 			dbgfs_put_pids(targets, nr_targets);
+ 		ret = -EBUSY;
+ 		goto unlock_out;
+ 	}
+ 
+-	/* remove targets with previously-set primitive */
+-	damon_set_targets(ctx, NULL, 0);
+-
+-	/* Configure the context for the address space type */
+-	if (id_is_pid)
+-		damon_va_set_primitives(ctx);
+-	else
+-		damon_pa_set_primitives(ctx);
+-
+ 	err = damon_set_targets(ctx, targets, nr_targets);
+ 	if (err) {
+-		if (id_is_pid)
++		if (targetid_is_pid(ctx))
+ 			dbgfs_put_pids(targets, nr_targets);
+ 		ret = err;
+ 	}
+-- 
+2.32.0
+

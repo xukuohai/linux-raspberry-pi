@@ -1,0 +1,46 @@
+From 38f649e0f06119c0be5e855e233b3704044baaf9 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 10 Feb 2021 14:36:12 +0100
+Subject: arm64: insn: Reduce header dependencies of instruction decoder
+
+The instruction encoder/decoder depends on alternative headers only
+for single macro definitions that could be part of the instruction
+decoder.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/include/asm/alternative-macros.h | 3 ---
+ arch/arm64/include/asm/insn.h               | 3 ++-
+ 2 files changed, 2 insertions(+), 4 deletions(-)
+
+diff --git a/arch/arm64/include/asm/alternative-macros.h b/arch/arm64/include/asm/alternative-macros.h
+index 5df500dcc627..c01edf4d988d 100644
+--- a/arch/arm64/include/asm/alternative-macros.h
++++ b/arch/arm64/include/asm/alternative-macros.h
+@@ -6,9 +6,6 @@
+ 
+ #define ARM64_CB_PATCH ARM64_NCAPS
+ 
+-/* A64 instructions are always 32 bits. */
+-#define	AARCH64_INSN_SIZE		4
+-
+ #ifndef __ASSEMBLY__
+ 
+ #include <linux/stringify.h>
+diff --git a/arch/arm64/include/asm/insn.h b/arch/arm64/include/asm/insn.h
+index f67db3d76399..747d733ecd56 100644
+--- a/arch/arm64/include/asm/insn.h
++++ b/arch/arm64/include/asm/insn.h
+@@ -10,7 +10,8 @@
+ #include <linux/build_bug.h>
+ #include <linux/types.h>
+ 
+-#include <asm/alternative.h>
++/* A64 instructions are always 32 bits. */
++#define AARCH64_INSN_SIZE	4
+ 
+ #ifndef __ASSEMBLY__
+ /*
+-- 
+2.32.0
+

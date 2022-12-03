@@ -1,0 +1,73 @@
+From 0f81610ab42657b4793702896f08936a67a0e62b Mon Sep 17 00:00:00 2001
+From: Josh Poimboeuf <jpoimboe@redhat.com>
+Date: Thu, 21 Jan 2021 15:29:23 -0600
+Subject: objtool: Add asm version of STACK_FRAME_NON_STANDARD
+
+To be used for adding asm functions to the ignore list.  The "aw" is
+needed to help the ELF section metadata match GCC-created sections.
+Otherwise the linker creates duplicate sections instead of combining
+them.
+
+Signed-off-by: Josh Poimboeuf <jpoimboe@redhat.com>
+Link: https://lore.kernel.org/r/8faa476f9a5ac89af27944ec184c89f95f3c6c49.1611263462.git.jpoimboe@redhat.com
+(cherry picked from commit 081df94301e317e84c3413686043987da2c3e39d)
+---
+ include/linux/objtool.h       | 8 ++++++++
+ tools/include/linux/objtool.h | 8 ++++++++
+ 2 files changed, 16 insertions(+)
+
+diff --git a/include/linux/objtool.h b/include/linux/objtool.h
+index 662f19374bd9..a2042c418686 100644
+--- a/include/linux/objtool.h
++++ b/include/linux/objtool.h
+@@ -117,6 +117,12 @@ struct unwind_hint {
+ 	.popsection
+ .endm
+ 
++.macro STACK_FRAME_NON_STANDARD func:req
++	.pushsection .discard.func_stack_frame_non_standard, "aw"
++		.long \func - .
++	.popsection
++.endm
++
+ #endif /* __ASSEMBLY__ */
+ 
+ #else /* !CONFIG_STACK_VALIDATION */
+@@ -130,6 +136,8 @@ struct unwind_hint {
+ #define ANNOTATE_INTRA_FUNCTION_CALL
+ .macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 end=0
+ .endm
++.macro STACK_FRAME_NON_STANDARD func:req
++.endm
+ #endif
+ 
+ #endif /* CONFIG_STACK_VALIDATION */
+diff --git a/tools/include/linux/objtool.h b/tools/include/linux/objtool.h
+index 662f19374bd9..a2042c418686 100644
+--- a/tools/include/linux/objtool.h
++++ b/tools/include/linux/objtool.h
+@@ -117,6 +117,12 @@ struct unwind_hint {
+ 	.popsection
+ .endm
+ 
++.macro STACK_FRAME_NON_STANDARD func:req
++	.pushsection .discard.func_stack_frame_non_standard, "aw"
++		.long \func - .
++	.popsection
++.endm
++
+ #endif /* __ASSEMBLY__ */
+ 
+ #else /* !CONFIG_STACK_VALIDATION */
+@@ -130,6 +136,8 @@ struct unwind_hint {
+ #define ANNOTATE_INTRA_FUNCTION_CALL
+ .macro UNWIND_HINT type:req sp_reg=0 sp_offset=0 end=0
+ .endm
++.macro STACK_FRAME_NON_STANDARD func:req
++.endm
+ #endif
+ 
+ #endif /* CONFIG_STACK_VALIDATION */
+-- 
+2.32.0
+

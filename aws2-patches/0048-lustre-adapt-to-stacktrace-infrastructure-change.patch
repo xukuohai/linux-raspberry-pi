@@ -1,0 +1,68 @@
+From c96016816e25bbe72501fe103b726dab20c1ef01 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Mon, 20 May 2019 17:56:30 +0000
+Subject: lustre: adapt to stacktrace infrastructure change
+
+In 5.2, the stacktrace code was reworked. The lustre code needed to be
+adapted.
+
+Linux commit 214d8ca6ee854f696f75e75511fe66b409e656db ("stacktrace: Provide common infrastructure")
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/config.h                    |  3 +++
+ .../lustrefsx/libcfs/libcfs/linux/linux-debug.c       | 11 ++++++++++-
+ 2 files changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/config.h b/drivers/staging/lustrefsx/config.h
+index 79c23e3d239f..409cdebc7143 100644
+--- a/drivers/staging/lustrefsx/config.h
++++ b/drivers/staging/lustrefsx/config.h
+@@ -898,6 +898,9 @@
+ /* vm_fault_t exists */
+ #define HAVE_VM_FAULT_T 1
+ 
++/* Common stacktrace infrastructure exists */
++#define HAVE_COMMON_STACKTRACE 1
++
+ /* ext4_journal_start takes 3 arguments */
+ /* #undef JOURNAL_START_HAS_3ARGS */
+ 
+diff --git a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-debug.c b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-debug.c
+index edd19396dd69..cbd2187a9f63 100644
+--- a/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-debug.c
++++ b/drivers/staging/lustrefsx/libcfs/libcfs/linux/linux-debug.c
+@@ -120,20 +120,29 @@ static DEFINE_SPINLOCK(st_lock);
+ 
+ static void libcfs_call_trace(struct task_struct *tsk)
+ {
+-	struct stack_trace trace;
+ 	static unsigned long entries[MAX_ST_ENTRIES];
++#ifdef HAVE_COMMON_STACKTRACE
++	unsigned int len;
++#else
++	struct stack_trace trace;
+ 
+ 	trace.nr_entries = 0;
+ 	trace.max_entries = MAX_ST_ENTRIES;
+ 	trace.entries = entries;
+ 	trace.skip = 0;
++#endif
+ 
+ 	spin_lock(&st_lock);
+ 	pr_info("Pid: %d, comm: %.20s %s %s\n", tsk->pid, tsk->comm,
+ 	       init_utsname()->release, init_utsname()->version);
+ 	pr_info("Call Trace:\n");
++#ifdef HAVE_COMMON_STACKTRACE
++	len = stack_trace_save(entries, MAX_ST_ENTRIES, 2);
++	stack_trace_print(entries, len, 1);
++#else
+ 	save_stack_trace_tsk(tsk, &trace);
+ 	print_stack_trace(&trace, 0);
++#endif
+ 	spin_unlock(&st_lock);
+ }
+ 
+-- 
+2.32.0
+

@@ -1,0 +1,94 @@
+From 8c5b836e722f24a2b7a25cf8e42201b8f2947dc7 Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Mon, 31 Aug 2020 09:49:14 +0100
+Subject: objtool: check: Support data in text section
+
+Assembly code can mix code and data in text sections through the use
+of SYM_DATA_*() macros. Skip the content of these symbols when decoding
+instructions of text sections.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ tools/objtool/check.c               | 13 +++++++++++--
+ tools/objtool/elf.c                 | 14 ++++++++++++++
+ tools/objtool/include/objtool/elf.h |  1 +
+ 3 files changed, 26 insertions(+), 2 deletions(-)
+
+diff --git a/tools/objtool/check.c b/tools/objtool/check.c
+index 2142c1dc42ca..9bc15a34db88 100644
+--- a/tools/objtool/check.c
++++ b/tools/objtool/check.c
+@@ -352,7 +352,7 @@ static int decode_instructions(struct objtool_file *file)
+ {
+ 	struct section *sec;
+ 	struct symbol *func;
+-	unsigned long offset;
++	unsigned long offset, next_offset;
+ 	struct instruction *insn;
+ 	int ret;
+ 
+@@ -371,7 +371,14 @@ static int decode_instructions(struct objtool_file *file)
+ 		    !strncmp(sec->name, ".text.__x86.", 12))
+ 			sec->noinstr = true;
+ 
+-		for (offset = 0; offset < sec->len; offset += insn->len) {
++		for (offset = 0; offset < sec->len; offset = next_offset) {
++			struct symbol *obj_sym = find_object_containing(sec, offset);
++			if (obj_sym) {
++				/* This is data in the middle of text section, skip it */
++				next_offset = obj_sym->offset + obj_sym->len;
++				continue;
++			}
++
+ 			insn = malloc(sizeof(*insn));
+ 			if (!insn) {
+ 				WARN("malloc failed");
+@@ -395,6 +402,8 @@ static int decode_instructions(struct objtool_file *file)
+ 			hash_add(file->insn_hash, &insn->hash, sec_offset_hash(sec, insn->offset));
+ 			list_add_tail(&insn->list, &file->insn_list);
+ 			nr_insns++;
++
++			next_offset = offset + insn->len;
+ 		}
+ 
+ 		list_for_each_entry(func, &sec->symbol_list, list) {
+diff --git a/tools/objtool/elf.c b/tools/objtool/elf.c
+index 965bf2015a40..0f7a3493986a 100644
+--- a/tools/objtool/elf.c
++++ b/tools/objtool/elf.c
+@@ -166,6 +166,20 @@ struct symbol *find_func_containing(struct section *sec, unsigned long offset)
+ 	return NULL;
+ }
+ 
++struct symbol *find_object_containing(struct section *sec, unsigned long offset)
++{
++	struct rb_node *node;
++
++	rb_for_each(node, &offset, &sec->symbol_tree, symbol_by_offset) {
++		struct symbol *s = rb_entry(node, struct symbol, node);
++
++		if (s->type == STT_OBJECT)
++			return s;
++	}
++
++	return NULL;
++}
++
+ struct symbol *find_symbol_by_name(const struct elf *elf, const char *name)
+ {
+ 	struct symbol *sym;
+diff --git a/tools/objtool/include/objtool/elf.h b/tools/objtool/include/objtool/elf.h
+index d2c5ed827ed1..c3b8e67a72b6 100644
+--- a/tools/objtool/include/objtool/elf.h
++++ b/tools/objtool/include/objtool/elf.h
+@@ -150,6 +150,7 @@ struct reloc *find_reloc_by_dest(const struct elf *elf, struct section *sec, uns
+ struct reloc *find_reloc_by_dest_range(const struct elf *elf, struct section *sec,
+ 				     unsigned long offset, unsigned int len);
+ struct symbol *find_func_containing(struct section *sec, unsigned long offset);
++struct symbol *find_object_containing(struct section *sec, unsigned long offset);
+ 
+ #define for_each_sec(file, sec)						\
+ 	list_for_each_entry(sec, &file->elf->sections, list)
+-- 
+2.32.0
+

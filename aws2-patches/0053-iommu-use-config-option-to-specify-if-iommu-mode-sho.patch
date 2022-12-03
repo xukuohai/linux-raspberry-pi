@@ -1,0 +1,51 @@
+From 602ed430e4f8ff3fcdb3f7354e4c04f85974847f Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Thu, 29 Aug 2019 19:52:28 +0000
+Subject: iommu: use config option to specify if iommu mode should be strict
+
+Introduce a config (IOMMU_DEFAULT_STRICT) that specifies whether
+the iommu mode should be strict by default. The normal default is 'n'.
+
+This is setting is only used on arm64.
+
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/iommu/Kconfig | 4 ++++
+ drivers/iommu/iommu.c | 5 +++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/drivers/iommu/Kconfig b/drivers/iommu/Kconfig
+index 04878caf6da4..806af9c742ab 100644
+--- a/drivers/iommu/Kconfig
++++ b/drivers/iommu/Kconfig
+@@ -103,6 +103,10 @@ config IOMMU_DMA
+ 	select IRQ_MSI_IOMMU
+ 	select NEED_SG_DMA_LENGTH
+ 
++config IOMMU_DEFAULT_STRICT
++	def_bool n
++	depends on IOMMU_API && (ARM || ARM64)
++
+ config FSL_PAMU
+ 	bool "Freescale IOMMU support"
+ 	depends on PCI
+diff --git a/drivers/iommu/iommu.c b/drivers/iommu/iommu.c
+index 9d65557dfb2c..1849078eb784 100644
+--- a/drivers/iommu/iommu.c
++++ b/drivers/iommu/iommu.c
+@@ -29,7 +29,12 @@ static struct kset *iommu_group_kset;
+ static DEFINE_IDA(iommu_group_ida);
+ 
+ static unsigned int iommu_def_domain_type __read_mostly;
++
++#ifdef CONFIG_IOMMU_DEFAULT_STRICT
+ static bool iommu_dma_strict __read_mostly = true;
++#else
++static bool iommu_dma_strict __read_mostly = false;
++#endif
+ static u32 iommu_cmd_line __read_mostly;
+ 
+ struct iommu_group {
+-- 
+2.32.0
+

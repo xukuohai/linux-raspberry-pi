@@ -1,0 +1,121 @@
+From 0f4882d82febd1c3a365f0a0d9ee67cc793949d9 Mon Sep 17 00:00:00 2001
+From: Andy Strohman <astroh@amazon.com>
+Date: Tue, 26 May 2020 22:23:08 +0000
+Subject: lustre: restore mgc binding for sptlrpc
+
+This patch came from the b2_10 branch of AmazonFSxLustreClient repo.
+
+The patch from that repo is:
+
+    LU-10937 mgc: restore mgc binding for sptlrpc
+
+    The work for LU-9034 mapped config logs to separate mgc devices.
+    This change prevented the ability to configure sptlrpc. A later
+    work around was introduced in LU-9567. Recently it was reported
+    that the work around introduced can now cause a MGC failover
+    panic. This patch is the proper fix in that the sptlrpc is
+    properly bound to an mgc device.
+
+    The sptlrpc config record expects 2 pieces of data:
+
+      *  [0]: fs_name/target_name,
+      *  [1]: rule string
+
+    What was happening is that when you set cfg_instance it was used
+    to create a new instance name of the form fsname-%p. For sptlrpc
+    it expects it to only be fsname. The solution is to test if the
+    config record is for sptlrpc and in that can keep the first
+    record field as is. With this change we can drop cfg_obdname
+    which only sptlrpc used.
+
+    Test-Parameters: testlist=sanity-gss envdefinitions=ONLY=1,SHARED_KEY=true
+    Test-Parameters: testlist=sanity-sec envdefinitions=SHARED_KEY=true
+
+    Change-Id: I785f98264c6269f95c0d9a564b731d1b6ff0bcee
+    Signed-off-by: James Simmons <uja.ornl@yahoo.com>
+    Reviewed-on: https://review.whamcloud.com/33311
+    Tested-by: Jenkins
+    Reviewed-by: Sebastien Buisson <sbuisson@ddn.com>
+    Tested-by: Maloo <hpdd-maloo@intel.com>
+    Reviewed-by: Andreas Dilger <adilger@whamcloud.com>
+    Reviewed-by: Oleg Drokin <green@whamcloud.com>
+
+Signed-off-by: Andy Strohman <astroh@amazon.com>
+---
+ drivers/staging/lustrefsx/lustre/include/obd_class.h   | 1 -
+ drivers/staging/lustrefsx/lustre/mgc/mgc_request.c     | 7 +------
+ drivers/staging/lustrefsx/lustre/obdclass/obd_config.c | 7 +++++--
+ 3 files changed, 6 insertions(+), 9 deletions(-)
+
+diff --git a/drivers/staging/lustrefsx/lustre/include/obd_class.h b/drivers/staging/lustrefsx/lustre/include/obd_class.h
+index 729d34ad91fe..5223eedaae96 100644
+--- a/drivers/staging/lustrefsx/lustre/include/obd_class.h
++++ b/drivers/staging/lustrefsx/lustre/include/obd_class.h
+@@ -173,7 +173,6 @@ int class_add_conn(struct obd_device *obd, struct lustre_cfg *lcfg);
+ 
+ /* Passed as data param to class_config_parse_llog */
+ struct config_llog_instance {
+-	char			*cfg_obdname;
+ 	void			*cfg_instance;
+ 	struct super_block	*cfg_sb;
+ 	struct obd_uuid		 cfg_uuid;
+diff --git a/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c b/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
+index 151283328e48..a2a2bdd1f073 100644
+--- a/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
++++ b/drivers/staging/lustrefsx/lustre/mgc/mgc_request.c
+@@ -235,10 +235,8 @@ struct config_llog_data *do_config_log_add(struct obd_device *obd,
+ 	/* Keep the mgc around until we are done */
+ 	cld->cld_mgcexp = class_export_get(obd->obd_self_export);
+ 
+-	if (cld_is_sptlrpc(cld)) {
++	if (cld_is_sptlrpc(cld))
+ 		sptlrpc_conf_log_start(logname);
+-		cld->cld_cfg.cfg_obdname = obd->obd_name;
+-	}
+ 
+ 	spin_lock(&config_list_lock);
+ 	list_add(&cld->cld_list_chain, &config_llog_list);
+@@ -297,9 +295,6 @@ static struct config_llog_data *config_log_find_or_add(struct obd_device *obd,
+ 
+ 	lcfg.cfg_instance = sb != NULL ? (void *)sb : (void *)obd;
+ 
+-	if (type == CONFIG_T_SPTLRPC)
+-		lcfg.cfg_instance = NULL;
+-
+ 	cld = config_log_find(logname, &lcfg);
+ 	if (unlikely(cld != NULL))
+ 		return cld;
+diff --git a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+index 84f6a7ad0c14..936f1db0d70b 100644
+--- a/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
++++ b/drivers/staging/lustrefsx/lustre/obdclass/obd_config.c
+@@ -1558,6 +1558,7 @@ int class_config_llog_handler(const struct lu_env *env,
+ 		lustre_cfg_bufs_init(&bufs, lcfg);
+ 
+ 		if (cfg->cfg_instance &&
++		    lcfg->lcfg_command != LCFG_SPTLRPC_CONF &&
+ 		    LUSTRE_CFG_BUFLEN(lcfg, 0) > 0) {
+ 			inst_len = LUSTRE_CFG_BUFLEN(lcfg, 0) +
+ 				   sizeof(cfg->cfg_instance) * 2 + 4;
+@@ -1586,14 +1587,16 @@ int class_config_llog_handler(const struct lu_env *env,
+                  * moving them to index [1] and [2], and insert MGC's
+                  * obdname at index [0].
+                  */
+-		if (cfg->cfg_instance == NULL &&
++		if (cfg->cfg_instance &&
+ 		    lcfg->lcfg_command == LCFG_SPTLRPC_CONF) {
++			struct obd_device *obd = cfg->cfg_instance;
++
+ 			lustre_cfg_bufs_set(&bufs, 2, bufs.lcfg_buf[1],
+ 					    bufs.lcfg_buflen[1]);
+ 			lustre_cfg_bufs_set(&bufs, 1, bufs.lcfg_buf[0],
+ 					    bufs.lcfg_buflen[0]);
+ 			lustre_cfg_bufs_set_string(&bufs, 0,
+-						   cfg->cfg_obdname);
++						   obd->obd_name);
+ 		}
+ 
+ 		/* Add net info to setup command
+-- 
+2.32.0
+

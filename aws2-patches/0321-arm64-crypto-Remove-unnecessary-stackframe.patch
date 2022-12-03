@@ -1,0 +1,42 @@
+From b78ee17feaa3d8dedbbc7ffcdb461e1dfbb6a55a Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Thu, 17 Sep 2020 10:06:26 +0100
+Subject: arm64: crypto: Remove unnecessary stackframe
+
+The way sha256_block_neon restore the stackframe confuses objtool.
+But it turns out this function is a leaf function and does not use
+FP nor LR as scratch register.
+
+Do not create a stackframe in this function as it is not necessary.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/crypto/sha256-core.S_shipped | 5 +----
+ 1 file changed, 1 insertion(+), 4 deletions(-)
+
+diff --git a/arch/arm64/crypto/sha256-core.S_shipped b/arch/arm64/crypto/sha256-core.S_shipped
+index 7c7ce2e3bad6..787a1fe466a7 100644
+--- a/arch/arm64/crypto/sha256-core.S_shipped
++++ b/arch/arm64/crypto/sha256-core.S_shipped
+@@ -1225,8 +1225,6 @@ sha256_block_armv8:
+ .align	4
+ sha256_block_neon:
+ .Lneon_entry:
+-	stp	x29, x30, [sp, #-16]!
+-	mov	x29, sp
+ 	sub	sp,sp,#16*4
+ 
+ 	adr	x16,.LK256
+@@ -2060,8 +2058,7 @@ sha256_block_neon:
+ 	 mov	x17,sp
+ 	b.ne	.L_00_48
+ 
+-	ldr	x29,[x29]
+-	add	sp,sp,#16*4+16
++	add	sp,sp,#16*4
+ 	ret
+ .size	sha256_block_neon,.-sha256_block_neon
+ #ifndef	__KERNEL__
+-- 
+2.32.0
+

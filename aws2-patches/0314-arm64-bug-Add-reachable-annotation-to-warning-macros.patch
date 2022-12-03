@@ -1,0 +1,36 @@
+From c5611d1c3e07ed905e9bb4f09cd5722417d3de1e Mon Sep 17 00:00:00 2001
+From: Julien Thierry <jthierry@redhat.com>
+Date: Wed, 18 Mar 2020 20:01:57 +0000
+Subject: arm64: bug: Add reachable annotation to warning macros
+
+WARN* and BUG* both use brk #0x800 opcodes and the distinction is
+provided by the contents of the bug table. This table is not accessible
+to objtool, so add an annotation to WARN* macros to let objtool know
+that brk handler will return an resume the execution of the instructions
+following the WARN's brk.
+
+Signed-off-by: Julien Thierry <jthierry@redhat.com>
+---
+ arch/arm64/include/asm/bug.h | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/arch/arm64/include/asm/bug.h b/arch/arm64/include/asm/bug.h
+index 28be048db3f6..9917429971d4 100644
+--- a/arch/arm64/include/asm/bug.h
++++ b/arch/arm64/include/asm/bug.h
+@@ -19,7 +19,11 @@
+ 	unreachable();					\
+ } while (0)
+ 
+-#define __WARN_FLAGS(flags) __BUG_FLAGS(BUGFLAG_WARNING|(flags))
++#define __WARN_FLAGS(flags)			\
++do {						\
++	__BUG_FLAGS(BUGFLAG_WARNING|(flags));	\
++	annotate_reachable();			\
++} while (0)
+ 
+ #define HAVE_ARCH_BUG
+ 
+-- 
+2.32.0
+

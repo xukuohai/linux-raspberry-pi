@@ -1,0 +1,49 @@
+From 280f9e7084df511d88df9f3bbc542b13853d3570 Mon Sep 17 00:00:00 2001
+From: Frank van der Linden <fllinden@amazon.com>
+Date: Fri, 8 Mar 2019 23:50:49 +0000
+Subject: lustre: adapt to changed kernel socket interfaces
+
+Linux 4.16 changed kernel_get{sock,peer}name to return the lengh of the
+sockaddr, instead of using an in/out param. Adapt to this change.
+
+Linux commit: 9b2c45d479d0 ("net: make getname() functions return
+length rather than use int* parameter")
+
+Signed-off-by: Denys Vlasenko <dvlasenk@redhat.com>
+Signed-off-by: Frank van der Linden <fllinden@amazon.com>
+---
+ drivers/staging/lustrefsx/lnet/lnet/lib-socket.c | 11 ++++++++++-
+ 1 file changed, 10 insertions(+), 1 deletion(-)
+
+diff --git a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+index a1b2b327a384..6bd3f4e21429 100644
+--- a/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
++++ b/drivers/staging/lustrefsx/lnet/lnet/lib-socket.c
+@@ -502,14 +502,23 @@ int
+ lnet_sock_getaddr(struct socket *sock, bool remote, __u32 *ip, int *port)
+ {
+ 	struct sockaddr_in sin;
+-	int		   len = sizeof(sin);
+ 	int		   rc;
+ 
++#ifdef HAVE_KERNSOCK_RETURNSLEN
++	if (remote)
++		rc = kernel_getpeername(sock, (struct sockaddr *)&sin);
++	else
++		rc = kernel_getsockname(sock, (struct sockaddr *)&sin);
++	if (rc < 0) {
++#else
++	int		   len = sizeof(sin);
++
+ 	if (remote)
+ 		rc = kernel_getpeername(sock, (struct sockaddr *)&sin, &len);
+ 	else
+ 		rc = kernel_getsockname(sock, (struct sockaddr *)&sin, &len);
+ 	if (rc != 0) {
++#endif
+ 		CERROR("Error %d getting sock %s IP/port\n",
+ 			rc, remote ? "peer" : "local");
+ 		return rc;
+-- 
+2.32.0
+

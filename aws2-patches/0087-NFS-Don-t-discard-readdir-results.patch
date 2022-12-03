@@ -1,0 +1,102 @@
+From 5120dd8f37d2a3e5da4fdf89a6e51afc669921a7 Mon Sep 17 00:00:00 2001
+From: Trond Myklebust <trond.myklebust@hammerspace.com>
+Date: Sun, 1 Nov 2020 13:14:10 -0500
+Subject: NFS: Don't discard readdir results
+
+If a readdir call returns more data than we can fit into one page
+cache page, then allocate a new one for that data rather than
+discarding the data.
+
+Signed-off-by: Trond Myklebust <trond.myklebust@hammerspace.com>
+Reviewed-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Benjamin Coddington <bcodding@redhat.com>
+Tested-by: Dave Wysochanski <dwysocha@redhat.com>
+(cherry picked from commit 3b2a09f127e025674945e82c1ec0c88d6740280e)
+---
+ fs/nfs/dir.c | 46 ++++++++++++++++++++++++++++++++++++++++++----
+ 1 file changed, 42 insertions(+), 4 deletions(-)
+
+diff --git a/fs/nfs/dir.c b/fs/nfs/dir.c
+index a98eab31d92a..abf43fb6c0e8 100644
+--- a/fs/nfs/dir.c
++++ b/fs/nfs/dir.c
+@@ -320,6 +320,26 @@ static void nfs_readdir_page_set_eof(struct page *page)
+ 	kunmap_atomic(array);
+ }
+ 
++static void nfs_readdir_page_unlock_and_put(struct page *page)
++{
++	unlock_page(page);
++	put_page(page);
++}
++
++static struct page *nfs_readdir_page_get_next(struct address_space *mapping,
++					      pgoff_t index, u64 cookie)
++{
++	struct page *page;
++
++	page = nfs_readdir_page_get_locked(mapping, index, cookie);
++	if (page) {
++		if (nfs_readdir_page_last_cookie(page) == cookie)
++			return page;
++		nfs_readdir_page_unlock_and_put(page);
++	}
++	return NULL;
++}
++
+ static inline
+ int is_32bit_api(void)
+ {
+@@ -637,13 +657,15 @@ void nfs_prime_dcache(struct dentry *parent, struct nfs_entry *entry,
+ }
+ 
+ /* Perform conversion from xdr to cache array */
+-static
+-int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *entry,
+-				struct page **xdr_pages, struct page *page, unsigned int buflen)
++static int nfs_readdir_page_filler(struct nfs_readdir_descriptor *desc,
++				   struct nfs_entry *entry,
++				   struct page **xdr_pages,
++				   struct page *fillme, unsigned int buflen)
+ {
++	struct address_space *mapping = desc->file->f_mapping;
+ 	struct xdr_stream stream;
+ 	struct xdr_buf buf;
+-	struct page *scratch;
++	struct page *scratch, *new, *page = fillme;
+ 	int status;
+ 
+ 	scratch = alloc_page(GFP_KERNEL);
+@@ -666,6 +688,19 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
+ 					desc->dir_verifier);
+ 
+ 		status = nfs_readdir_add_to_array(entry, page);
++		if (status != -ENOSPC)
++			continue;
++
++		if (page->mapping != mapping)
++			break;
++		new = nfs_readdir_page_get_next(mapping, page->index + 1,
++						entry->prev_cookie);
++		if (!new)
++			break;
++		if (page != fillme)
++			nfs_readdir_page_unlock_and_put(page);
++		page = new;
++		status = nfs_readdir_add_to_array(entry, page);
+ 	} while (!status && !entry->eof);
+ 
+ 	switch (status) {
+@@ -681,6 +716,9 @@ int nfs_readdir_page_filler(nfs_readdir_descriptor_t *desc, struct nfs_entry *en
+ 		break;
+ 	}
+ 
++	if (page != fillme)
++		nfs_readdir_page_unlock_and_put(page);
++
+ 	put_page(scratch);
+ 	return status;
+ }
+-- 
+2.32.0
+
